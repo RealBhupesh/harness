@@ -1,0 +1,45 @@
+{
+  "name": "relay-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Resumable autonomous agent harness with evidence-based verification",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "packageManager": "pnpm@10.32.1",
+  "bin": {
+    "relay": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "relay": "tsx src/cli.ts",
+    "eval": "tsx evals/run.ts"
+  },
+  "dependencies": {
+    "zod": "^4.3.6",
+    "better-sqlite3": "^12.6.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
+    "tsx": "^4.21.0",
+    "eslint": "^9.39.2",
+    "@eslint/js": "^9.39.2",
+    "typescript-eslint": "^8.56.1",
+    "prettier": "^3.8.1",
+    "@types/node": "^22.19.11",
+    "@types/better-sqlite3": "^7.6.13"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

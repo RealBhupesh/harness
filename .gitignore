@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+.relay/*.sqlite*
+.relay/traces.jsonl
+.relay/checkpoint.json
+.relay/run.lock
+.relay/report.html
+.relay/worktrees/
