@@ -1,3 +1,4 @@
+import { deadlineSignal } from './limits.js';
 import { TraceStore, TracedProvider, TracedTools, report } from './trace.js';
 import { BudgetProvider, BudgetExceeded } from './budget.js';
 import { RunLock } from './lock.js';
@@ -62,16 +63,17 @@ export class Orchestrator {
     const startCompleted = cp.completed;
     const trace = new TraceStore(this.memory.dir);
     const context = () => ({ runId: cp.runId, taskId: cp.taskId });
-    const provider = new TracedProvider(
-      new BudgetProvider(this.provider, this.config, cp.usage),
-      trace,
-      context,
+    const provider = new BudgetProvider(
+      new TracedProvider(this.provider, trace, context),
+      this.config,
+      cp.usage,
     );
     try {
       let lastTick = Date.now();
       const transition = (phase: Phase) => {
         const now = Date.now();
         cp.activeWallMs += now - lastTick;
+        if (cp.taskId) cp.taskActiveMs += now - lastTick;
         lastTick = now;
         cp.phase = phase;
         cp.snapshotPlan = plan;
@@ -99,6 +101,19 @@ export class Orchestrator {
           trace,
           context,
         );
+      const remaining = () =>
+        Math.min(
+          this.config.taskTimeoutMs - (cp.taskActiveMs + Date.now() - lastTick),
+          this.config.maxWallTimeMs - (cp.activeWallMs + Date.now() - lastTick),
+        );
+      const operationSignal = () => {
+        const ms = remaining();
+        if (ms <= 0)
+          throw new BudgetExceeded(
+            'Task or run wall-time cap reached; resume with sufficient budget.',
+          );
+        return deadlineSignal(ms);
+      };
       const taskGit = () => new Git(this.git.worktree(cp.branch!));
       transition(cp.phase);
       while (cp.completed - startCompleted < maxTasks) {
@@ -140,7 +155,10 @@ export class Orchestrator {
             cp.branch = `relay/${task.id}/${task.attempts + 1}-${randomUUID().slice(0, 8)}`;
             cp.steps = 0;
             cp.taskStarted = Date.now();
+            cp.taskActiveMs = 0;
             cp.messages = [];
+            cp.pendingMutation = null;
+            cp.verificationTree = null;
             cp.pendingTools = [];
             cp.toolIndex = 0;
             cp.awaitingToolFinish = false;
@@ -171,26 +189,24 @@ export class Orchestrator {
             if (!cp.awaitingToolFinish) {
               if (
                 cp.steps >= this.config.maxSteps ||
-                Date.now() - cp.taskStarted > this.config.taskTimeoutMs
+                cp.taskActiveMs + Date.now() - lastTick >
+                  this.config.taskTimeoutMs
               )
                 throw new Error('Worker task limit exceeded');
               const response = await provider.complete({
                 role: 'worker',
                 model: this.config.models.worker,
                 messages: cp.messages,
-                signal: AbortSignal.timeout(
-                  Math.max(
-                    1,
-                    this.config.taskTimeoutMs - (Date.now() - cp.taskStarted),
-                  ),
-                ),
+                callId: `${cp.branch}/worker/${cp.steps}`,
+                signal: operationSignal(),
               });
               cp.steps++;
               cp.messages.push({
                 role: 'assistant',
-                content:
-                  response.content ||
-                  JSON.stringify({ toolCalls: response.toolCalls }),
+                content: JSON.stringify({
+                  content: response.content,
+                  toolCalls: response.toolCalls,
+                }),
               });
               cp.pendingTools = response.toolCalls;
               cp.toolIndex = 0;
@@ -199,11 +215,35 @@ export class Orchestrator {
               continue;
             }
             while (cp.toolIndex < cp.pendingTools.length) {
+              if (cp.steps >= this.config.maxSteps)
+                throw new Error('Task step limit exceeded');
               const call = cp.pendingTools[cp.toolIndex]!;
-              const result = await tools().run(call);
+              if (cp.pendingMutation === null) {
+                cp.pendingMutation = tools().mutation(call);
+                if (cp.pendingMutation) transition('EXECUTE');
+              }
+              const result =
+                cp.pendingMutation &&
+                tools().reconcile(cp.pendingMutation) === 'applied'
+                  ? `Recovered applied mutation ${cp.pendingMutation.path}`
+                  : await tools().run(call, operationSignal());
+              if (
+                cp.pendingMutation &&
+                tools().reconcile(cp.pendingMutation) !== 'applied'
+              )
+                throw new Error(
+                  'Tool mutation did not produce expected content',
+                );
+              cp.pendingMutation = null;
+              cp.steps++;
               cp.messages.push({
                 role: 'user',
-                content: JSON.stringify({ tool: call.name, result }),
+                content: JSON.stringify({
+                  tool: call.name,
+                  args: call.args,
+                  index: cp.toolIndex,
+                  result,
+                }),
               });
               cp.toolIndex++;
               transition('EXECUTE');
@@ -219,7 +259,19 @@ export class Orchestrator {
               tools(),
               provider,
               this.config,
-              taskGit().run(['diff', 'HEAD']),
+              () => {
+                const diff = taskGit().diff(),
+                  tree = taskGit().run(['write-tree']);
+                if (cp.verificationTree && cp.verificationTree !== tree)
+                  throw new Error(
+                    'Verification artifact changed after checkpoint',
+                  );
+                cp.verificationTree = tree;
+                transition('VERIFY');
+                return { diff, tree };
+              },
+              operationSignal(),
+              `${cp.branch}/verifier`,
             );
             this.memory.write(
               `evidence-${findTask().id}.json`,
@@ -230,7 +282,11 @@ export class Orchestrator {
             // A commit may exist when a crash occurred before the phase checkpoint.
             const head = taskGit().run(['rev-parse', 'HEAD']);
             if (head === cp.baseSha)
-              taskGit().commit(findTask().id, findTask().title);
+              taskGit().commit(
+                findTask().id,
+                findTask().title,
+                cp.verificationTree ?? undefined,
+              );
             else if (
               !taskGit()
                 .run(['log', '-1', '--format=%s'])
@@ -281,6 +337,7 @@ export class Orchestrator {
           cp.baseBranch = null;
           cp.baseSha = null;
           cp.messages = [];
+          cp.pendingMutation = null;
           cp.pendingTools = [];
           cp.toolIndex = 0;
           cp.awaitingToolFinish = false;

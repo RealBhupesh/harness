@@ -152,8 +152,18 @@ export const CheckpointSchema = z.object({
   ),
   steps: z.number().int(),
   taskStarted: z.number(),
+  taskActiveMs: z.number().nonnegative().default(0),
   stopReason: z.string().nullable(),
   snapshotPlan: PlanSchema.optional(),
+  verificationTree: z.string().nullable().default(null),
+  pendingMutation: z
+    .object({
+      path: z.string(),
+      before: z.string().nullable(),
+      after: z.string(),
+    })
+    .nullable()
+    .default(null),
   pendingTools: z.array(ToolCallSchema).default([]),
   toolIndex: z.number().int().nonnegative().default(0),
   awaitingToolFinish: z.boolean().default(false),

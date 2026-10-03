@@ -1,10 +1,5 @@
 import type { Config } from './schema.js';
-import {
-  MockProvider,
-  type LLMProvider,
-  type Request,
-  type Response,
-} from './provider.js';
+import { type LLMProvider, type Request, type Response } from './provider.js';
 import { toolDefinitions } from './providers.js';
 export class BudgetExceeded extends Error {}
 export class BudgetProvider implements LLMProvider {
@@ -22,7 +17,7 @@ export class BudgetProvider implements LLMProvider {
         'Token or cost cap reached; increase the configured cap to continue.',
       );
     let output = this.config.maxOutputTokens;
-    if (!(this.inner instanceof MockProvider)) {
+    if (!this.inner.mock) {
       // UTF-8 byte count conservatively reserves input; remote billing may differ.
       const input =
         Buffer.byteLength(JSON.stringify(request.messages)) +

@@ -11,6 +11,8 @@ export type Request = {
   messages: Message[];
   signal?: AbortSignal;
   maxOutputTokens?: number;
+  callId?: string;
+  artifactHash?: string;
 };
 export const ResponseSchema = z.object({
   content: z.string(),
@@ -24,9 +26,11 @@ export const ResponseSchema = z.object({
 });
 export type Response = z.infer<typeof ResponseSchema>;
 export interface LLMProvider {
+  readonly mock?: boolean;
   complete(request: Request): Promise<Response>;
 }
 export class MockProvider implements LLMProvider {
+  readonly mock = true;
   private cursor = 0;
   get position() {
     return this.cursor;

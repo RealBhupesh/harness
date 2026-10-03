@@ -18,11 +18,13 @@ export async function verify(
   tools: ToolRunner,
   provider: LLMProvider,
   config: Config,
-  diff: string,
+  diff: () => { diff: string; tree: string },
+  signal?: AbortSignal,
+  callId?: string,
 ): Promise<Evidence[]> {
   const evidence: Evidence[] = [];
   for (const argv of config.verificationCommands) {
-    const result = await tools.command(argv);
+    const result = await tools.command(argv, signal);
     if (result.code !== 0)
       throw new Error(
         `Required check failed: ${JSON.stringify({ argv, ...result })}`,
@@ -35,15 +37,18 @@ export async function verify(
   }
   for (const criterion of task.acceptance) {
     if (criterion.kind === 'fileContains') {
-      const output = await tools.run({
-        name: 'read',
-        args: { path: criterion.path },
-      });
+      const output = await tools.run(
+        {
+          name: 'read',
+          args: { path: criterion.path },
+        },
+        signal,
+      );
       if (!output.includes(criterion.text))
         throw new Error(`Acceptance failed: ${criterion.id}`);
       evidence.push({ id: criterion.id, check: criterion.description, output });
     } else {
-      const result = await tools.command(criterion.argv);
+      const result = await tools.command(criterion.argv, signal);
       if (result.code !== 0)
         throw new Error(`Acceptance failed: ${criterion.id}: ${result.stderr}`);
       evidence.push({
@@ -53,8 +58,11 @@ export async function verify(
       });
     }
   }
+  const artifact = diff();
   const response = await provider.complete({
+    artifactHash: artifact.tree,
     role: 'verifier',
+    ...(callId ? { callId } : {}),
     model: config.models.verifier,
     messages: [
       {
@@ -64,10 +72,14 @@ export async function verify(
       },
       {
         role: 'user',
-        content: JSON.stringify({ task, diff: diff.slice(0, 32000), evidence }),
+        content: JSON.stringify({
+          task,
+          diff: artifact.diff.slice(0, 32000),
+          evidence,
+        }),
       },
     ],
-    signal: AbortSignal.timeout(config.taskTimeoutMs),
+    signal: signal ?? AbortSignal.timeout(config.taskTimeoutMs),
   });
   if (response.toolCalls.length)
     throw new Error('Verifier may not modify the repository');

@@ -1,3 +1,6 @@
+import { assertMetadata } from './metadata.js';
+import { createHash } from 'node:crypto';
+import { MockProvider, ResponseSchema } from './provider.js';
 import Database from 'better-sqlite3';
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -22,6 +25,14 @@ export type Event = z.infer<typeof EventSchema>;
 export class TraceStore {
   readonly db: Database.Database;
   constructor(readonly dir: string) {
+    for (const name of [
+      'traces.sqlite',
+      'traces.sqlite-wal',
+      'traces.sqlite-shm',
+      'traces.sqlite-journal',
+      'traces.jsonl',
+    ])
+      assertMetadata(join(dir, name));
     this.db = new Database(join(dir, 'traces.sqlite'));
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = FULL');
@@ -42,6 +53,7 @@ export class TraceStore {
         'INSERT INTO events VALUES (@id,@time,@runId,@taskId,@kind,@payload)',
       )
       .run(event);
+    assertMetadata(join(this.dir, 'traces.jsonl'));
     appendFileSync(
       join(this.dir, 'traces.jsonl'),
       JSON.stringify(event) + '\n',
@@ -66,13 +78,67 @@ export class TracedProvider implements LLMProvider {
     readonly trace: TraceStore,
     readonly context: () => TraceContext,
   ) {}
+  get mock() {
+    return this.inner.mock ?? false;
+  }
   async complete(request: Request): Promise<Response> {
+    const context = this.context(),
+      key =
+        request.callId ??
+        createHash('sha256')
+          .update(
+            JSON.stringify({
+              role: request.role,
+              model: request.model,
+              messages: request.messages,
+            }),
+          )
+          .digest('hex');
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          role: request.role,
+          model: request.model,
+          input: request.artifactHash ?? request.messages,
+        }),
+      )
+      .digest('hex');
+    const cached = this.trace
+      .events(context.taskId ?? undefined)
+      .find(
+        (e) =>
+          e.kind === 'llm' &&
+          e.runId === context.runId &&
+          (JSON.parse(e.payload) as { key?: string }).key === key,
+      );
+    if (
+      cached &&
+      (JSON.parse(cached.payload) as { fingerprint?: string }).fingerprint !==
+        fingerprint
+    )
+      throw new Error(
+        'Recorded model response does not match current request or artifact',
+      );
+    if (cached) {
+      const data = z
+        .object({ response: ResponseSchema, position: z.number().optional() })
+        .parse(JSON.parse(cached.payload));
+      if (this.inner instanceof MockProvider && data.position !== undefined)
+        this.inner.position = data.position;
+      this.trace.record('llm_recovered', { key }, context);
+      return data.response;
+    }
     const started = Date.now();
     try {
       const response = await this.inner.complete(request);
       this.trace.record(
         'llm',
         {
+          key,
+          fingerprint,
+          ...(this.inner instanceof MockProvider
+            ? { position: this.inner.position }
+            : {}),
           role: request.role,
           model: request.model,
           messages: request.messages,

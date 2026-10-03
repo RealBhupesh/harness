@@ -15,3 +15,5 @@
 2026-10-04: Corrected a prematurely pushed budget edit. Full verification now passes: 23 tests, lint, typecheck, build. Added cap-stop/resume coverage that preserves the charged worker response before applying tools. The history records the correction without rewriting remote commits.
 
 2026-10-04: M5 verified: 25 tests, lint, typecheck, build. SQLite and JSONL record LLM/tool/phase events; persistence, redaction and escaped HTML report tested. Independent review requested before further concurrency changes.
+
+2026-10-04: Independent review findings reproduced and fixed. 41 tests plus lint/typecheck/build pass. Added artifact-pinned verifier replay and commit, full prospective-file diffs, mutation pre/post hash journals, response-ledger replay with usage/cursor reconciliation, checkpoint-first human transactions, planner status restrictions, complete textual tool transcripts, atomic locks, confined Git operations, metadata path guards and independent command watchdog with recovery fencing. CLI demo still completes a tested task. OS-level containment remains an explicit limitation; use trusted repository scripts in an isolated container.

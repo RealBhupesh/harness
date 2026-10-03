@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Memory } from '../src/memory.ts';
 import { Git } from '../src/git.ts';
 import { ToolRunner } from '../src/tools.ts';
+import { TracedProvider } from '../src/trace.ts';
 import { MockProvider } from '../src/provider.ts';
 import { Orchestrator } from '../src/orchestrator.ts';
 import { defaultConfig } from '../src/schema.ts';
@@ -27,7 +28,17 @@ Git.prototype.integrate = function (...args) {
 const run = ToolRunner.prototype.run;
 ToolRunner.prototype.run = async function (...args) {
   const result = await run.apply(this, args);
-  if (mode === 'tool' && args[0].name === 'write') kill();
+  if (
+    (mode === 'tool' && args[0].name === 'write') ||
+    (mode === 'patch' && args[0].name === 'patch')
+  )
+    kill();
+  return result;
+};
+const complete = TracedProvider.prototype.complete;
+TracedProvider.prototype.complete = async function (req) {
+  const result = await complete.call(this, req);
+  if (mode === 'verifier' && req.role === 'verifier') kill();
   return result;
 };
 const script = JSON.parse(readFileSync(join(root, '.relay/mock.json'), 'utf8'));

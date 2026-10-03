@@ -58,3 +58,14 @@ test('a real mock run records LLM, tool and phase events in SQLite and JSONL', a
   expect(memory.read('report.html')).toContain('100%');
   store.close();
 });
+test('trace metadata symlinks cannot redirect writes outside the repository', async () => {
+  const { symlinkSync, writeFileSync } = await import('node:fs');
+  for (const name of ['traces.jsonl', 'traces.sqlite']) {
+    const memory = new Memory(fixture()),
+      outside = join(fixture(), 'outside.txt');
+    writeFileSync(outside, 'untouched');
+    symlinkSync(outside, join(memory.dir, name));
+    expect(() => new TraceStore(memory.dir)).toThrow('Metadata');
+    expect(readFileSync(outside, 'utf8')).toBe('untouched');
+  }
+});

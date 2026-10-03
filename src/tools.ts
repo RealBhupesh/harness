@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { runCommand } from './command.js';
 import {
   existsSync,
   lstatSync,
@@ -80,87 +81,74 @@ export class ToolRunner {
       }
     return this.spawn(argv, signal);
   }
-  async git(argv: string[]): Promise<CommandResult> {
-    if (
-      !['status', 'diff', 'log'].includes(argv[0] ?? '') ||
-      argv.some((arg) => arg.startsWith('--output') || arg.includes('\0'))
-    )
-      throw new Error('Git tool only permits status, diff, log');
-    return this.spawn(['git', ...argv]);
+  async git(argv: string[], signal?: AbortSignal): Promise<CommandResult> {
+    if (argv.length !== 1 || !['status', 'diff', 'log'].includes(argv[0] ?? ''))
+      throw new Error(
+        'Git tool accepts only a status, diff or log operation without arguments',
+      );
+    const args =
+      argv[0] === 'status'
+        ? ['status', '--short']
+        : argv[0] === 'log'
+          ? ['log', '-10', '--oneline']
+          : ['diff', '--no-ext-diff', '--no-textconv'];
+    return this.spawn(
+      ['git', '-c', 'core.hooksPath=/dev/null', ...args],
+      signal,
+    );
   }
   private spawn(argv: string[], signal?: AbortSignal): Promise<CommandResult> {
-    return new Promise((resolveResult, reject) => {
-      const safeEnv: NodeJS.ProcessEnv = {};
-      for (const name of [
-        'PATH',
-        'LANG',
-        'LC_ALL',
-        'HOME',
-        'COREPACK_HOME',
-        'npm_config_cache',
-        'npm_config_devdir',
-        'NODE_EXTRA_CA_CERTS',
-        'SSL_CERT_FILE',
-      ])
-        if (process.env[name]) safeEnv[name] = process.env[name];
-      safeEnv.GIT_PAGER = 'cat';
-      safeEnv.CI = '1';
-      const child = spawn(argv[0]!, argv.slice(1), {
-        cwd: this.root,
-        env: safeEnv,
-        shell: false,
-        detached: process.platform !== 'win32',
-        signal,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      let stdout = '',
-        stderr = '',
-        bytes = 0,
-        truncated = false,
-        timedOut = false;
-      const capture = (kind: 'out' | 'err', data: Buffer) => {
-        const room = Math.max(0, this.config.maxOutputBytes - bytes);
-        const text = data.subarray(0, room).toString();
-        bytes += data.length;
-        truncated ||= bytes > this.config.maxOutputBytes;
-        if (kind === 'out') stdout += text;
-        else stderr += text;
-      };
-      child.stdout.on('data', (d: Buffer) => capture('out', d));
-      child.stderr.on('data', (d: Buffer) => capture('err', d));
-      const kill = () => {
-        if (child.pid) {
-          try {
-            process.kill(
-              process.platform === 'win32' ? child.pid : -child.pid,
-              'SIGKILL',
-            );
-          } catch {
-            child.kill('SIGKILL');
-          }
-        }
-      };
-      const timer = setTimeout(() => {
-        timedOut = true;
-        kill();
-      }, this.config.commandTimeoutMs);
-      child.on('error', (error) => {
-        clearTimeout(timer);
-        kill();
-        reject(error);
-      });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        resolveResult({
-          code: timedOut ? 124 : (code ?? 1),
-          stdout,
-          stderr: stderr + (timedOut ? '\nCommand timeout' : ''),
-          truncated,
-        });
-      });
-    });
+    return runCommand(this.root, this.config, argv, signal);
+  }
+  mutation(
+    call: ToolCall,
+  ): { path: string; before: string | null; after: string } | null {
+    if (!['write', 'patch'].includes(call.name)) return null;
+    const args = z
+      .object({
+        path: z.string(),
+        content: z.string().optional(),
+        oldText: z.string().optional(),
+        newText: z.string().optional(),
+      })
+      .parse(call.args);
+    const path = this.path(args.path),
+      before = existsSync(path) ? readFileSync(path, 'utf8') : null;
+    let after: string;
+    if (call.name === 'write') after = z.string().parse(args.content);
+    else {
+      const patch = z
+        .object({ oldText: z.string().min(1), newText: z.string() })
+        .parse(args);
+      if (before === null || before.split(patch.oldText).length !== 2)
+        throw new Error('Patch must match exactly once');
+      after = before.replace(patch.oldText, patch.newText);
+    }
+    const hash = (value: string) =>
+      createHash('sha256').update(value).digest('hex');
+    return {
+      path: args.path,
+      before: before === null ? null : hash(before),
+      after: hash(after),
+    };
+  }
+  reconcile(mutation: {
+    path: string;
+    before: string | null;
+    after: string;
+  }): 'applied' | 'pending' {
+    const path = this.path(mutation.path),
+      current = existsSync(path)
+        ? createHash('sha256').update(readFileSync(path)).digest('hex')
+        : null;
+    if (current === mutation.after) return 'applied';
+    if (current === mutation.before) return 'pending';
+    throw new Error(
+      'File diverged from checkpointed mutation; refusing overwrite',
+    );
   }
   async run(raw: ToolCall, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) throw signal.reason;
     const call = ToolCallSchema.parse(raw);
     if (call.name === 'command')
       return JSON.stringify(
@@ -173,6 +161,7 @@ export class ToolRunner {
       return JSON.stringify(
         await this.git(
           z.object({ argv: z.array(z.string()).min(1) }).parse(call.args).argv,
+          signal,
         ),
       );
     if (call.name === 'search') {
@@ -206,8 +195,6 @@ export class ToolRunner {
       .object({ oldText: z.string().min(1), newText: z.string() })
       .parse(args);
     const content = readFileSync(path, 'utf8');
-    if (!content.includes(oldText) && content.split(newText).length === 2)
-      return `Already patched ${args.path}`;
     if (content.split(oldText).length !== 2)
       throw new Error('Patch must match exactly once');
     writeFileSync(path, content.replace(oldText, newText));

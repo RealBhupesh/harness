@@ -5,6 +5,8 @@ import {
   existsSync,
   fsyncSync,
   mkdirSync,
+  lstatSync,
+  realpathSync,
   openSync,
   readFileSync,
   renameSync,
@@ -33,19 +35,48 @@ export function atomicWrite(path: string, content: string) {
 export class Memory {
   readonly dir: string;
   constructor(readonly root: string) {
-    this.dir = join(root, '.relay');
+    this.root = realpathSync(root);
+    this.dir = join(this.root, '.relay');
+    try {
+      if (lstatSync(this.dir).isSymbolicLink())
+        throw new Error('.relay must not be a symlink');
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      ))
+        throw error;
+    }
     mkdirSync(this.dir, { recursive: true });
   }
-  read(name: string): string {
+  private path(name: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))
+      throw new Error('Invalid memory filename');
     const path = join(this.dir, name);
+    try {
+      if (lstatSync(path).isSymbolicLink())
+        throw new Error('Memory files must not be symlinks');
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      ))
+        throw error;
+    }
+    return path;
+  }
+  read(name: string): string {
+    const path = this.path(name);
     return existsSync(path) ? readFileSync(path, 'utf8') : '';
   }
   write(name: string, content: string) {
-    atomicWrite(join(this.dir, name), content);
+    atomicWrite(this.path(name), content);
   }
   append(name: string, content: string) {
     appendFileSync(
-      join(this.dir, name),
+      this.path(name),
       `${new Date().toISOString()} ${redact(content)}\n`,
       { mode: 0o600 },
     );

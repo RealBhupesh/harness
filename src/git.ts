@@ -4,12 +4,17 @@ import { execFileSync } from 'node:child_process';
 export class Git {
   constructor(readonly root: string) {}
   run(args: string[]): string {
-    return execFileSync('git', args, {
+    return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
       cwd: this.root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat' },
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_PAGER: 'cat',
+      },
     }).trimEnd();
   }
   branch(): string {
@@ -38,14 +43,33 @@ export class Git {
       symlinkSync(modules, join(path, 'node_modules'), 'dir');
     return path;
   }
-  commit(taskId: string, title: string) {
+  diff(): string {
     this.run(['add', '--all', '--', '.', ':(exclude).relay']);
-    const names = this.run(['diff', '--cached', '--name-only'])
-      .split('\n')
+    return this.run(['diff', '--cached', '--no-ext-diff', '--no-textconv']);
+  }
+  commit(taskId: string, title: string, expectedTree?: string) {
+    this.run(['add', '--all', '--', '.', ':(exclude).relay']);
+    if (expectedTree && this.run(['write-tree']) !== expectedTree)
+      throw new Error('Verification artifact changed before commit');
+    const names = this.run(['diff', '--cached', '--name-only', '-z'])
+      .split('\0')
       .filter(Boolean);
     if (names.some((name) => /(^|\/)(\.env[^/]*|.*\.(pem|key))$/.test(name)))
       throw new Error('Secret file detected');
-    const diff = this.run(['diff', '--cached', '--no-ext-diff']);
+    const diff = this.run([
+      'diff',
+      '--cached',
+      '--no-ext-diff',
+      '--no-textconv',
+    ]);
+    if (
+      this.run(['diff', '--cached', '--diff-filter=D', '--name-only', '-z'])
+        .split('\0')
+        .filter(Boolean).length > 5
+    )
+      throw new Error(
+        'Human approval required for deleting more than five files',
+      );
     if (
       /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})\b/.test(
         diff,
