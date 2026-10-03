@@ -1,7 +1,7 @@
 # Relay build plan
 
 - [x] M0 Bootstrap
-- [ ] M1 Core loop
+- [x] M1 Core loop
 - [ ] M2 Verification
 - [ ] M3 Memory and resume
 - [ ] M4 Real providers

@@ -1,7 +1,7 @@
 # Relay state
-Current milestone: M1 Core loop
-Current task: Validated plans and offline execution
-Last completed task: M0 Bootstrap
-Overall: 1/9 milestones
-Known blockers: downstream GOAL.md is the requested placeholder.
-Next action: Implement validated plan graph, confined tools, and mock end-to-end orchestrator with per-task Git branches.
+Current milestone: M2 Verification
+Current task: Independent verifier and retry handling
+Last completed task: M1 Core loop
+Overall: 2/9 milestones
+Known blockers: downstream GOAL.md is a placeholder; live model credentials not configured.
+Next action: Add verifier evidence, bounded retries, three-attempt blocking, and QUESTIONS.md answer handling with integration tests.
