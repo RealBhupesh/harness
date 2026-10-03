@@ -11,13 +11,16 @@ import { BudgetProvider } from './budget.js';
 import { revisePlan } from './planner.js';
 import { answer } from './questions.js';
 import { Orchestrator } from './orchestrator.js';
+import { TraceStore, TracedProvider, report } from './trace.js';
 export async function main(argv = process.argv.slice(2), root = process.cwd()) {
   const [command, ...args] = argv;
-  const memory = new Memory(root);
   if (!command || command === '--help') {
-    console.log('relay init | plan | run [--max-tasks N] | resume | status');
+    console.log(
+      'relay init | plan | run [--max-tasks N] | resume [--max-tasks N] | status | trace <taskId> | report | answer <taskId> <text>',
+    );
     return;
   }
+  const memory = new Memory(root);
   if (command === 'init') {
     if (!memory.read('config.json'))
       memory.write(
@@ -34,25 +37,50 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
     ])
       if (!memory.read(file))
         memory.write(file, `# ${file.replace('.md', '')}\n`);
-    console.log('Initialized .relay/; configure provider and supply GOAL.md.');
+    console.log(
+      'Initialized .relay/; configure provider, Git ignores and supply GOAL.md.',
+    );
     return;
   }
-  const config = ConfigSchema.parse(
-    JSON.parse(memory.read('config.json') || '{}'),
-  );
   if (command === 'answer') {
     if (!args[0]) throw new Error('Expected task ID and answer');
     answer(memory, args[0], args.slice(1).join(' '));
     console.log('Answer saved; task is eligible for retry.');
     return;
   }
+  if (command === 'trace' || command === 'report') {
+    const store = new TraceStore(memory.dir);
+    try {
+      if (command === 'trace') {
+        if (!args[0]) throw new Error('Expected task ID');
+        console.log(
+          store
+            .events(args[0])
+            .map((e) => `${e.time} ${e.kind} ${e.payload}`)
+            .join('\n'),
+        );
+      } else {
+        report(memory, store);
+        console.log('Saved .relay/report.html');
+      }
+    } finally {
+      store.close();
+    }
+    return;
+  }
   if (command === 'status') {
-    const plan = memory.loadPlan();
+    const plan = memory.loadPlan(),
+      cp = memory.checkpoint();
     console.log(
-      `${plan.objective}\n${allTasks(plan).filter((t) => t.status === 'done').length}/${allTasks(plan).length} done\n${memory.read('STATE.md')}`,
+      `${plan.objective}\n${allTasks(plan).filter((t) => t.status === 'done').length}/${allTasks(plan).length} done\nTokens: ${cp?.usage.tokens ?? 0}; estimated cost: $${(cp?.usage.cost ?? 0).toFixed(4)}\n${memory.read('STATE.md')}`,
     );
     return;
   }
+  if (!['plan', 'run', 'resume'].includes(command))
+    throw new Error(`Unknown command: ${command}`);
+  const config = ConfigSchema.parse(
+    JSON.parse(memory.read('config.json') || '{}'),
+  );
   const provider =
     config.provider === 'mock'
       ? new MockProvider(
@@ -65,39 +93,58 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
         : new AnthropicProvider(process.env.ANTHROPIC_API_KEY ?? '', config);
   if (command === 'plan') {
     const goal = readFileSync(join(root, 'GOAL.md'), 'utf8');
-    if (goal.includes('<<YOUR GOAL HERE'))
+    if (goal.includes('<<YOUR GOAL HERE') || !goal.trim())
       throw new Error('Replace the GOAL.md placeholder with a real objective.');
-    const response = await new BudgetProvider(provider, config, {
-      tokens: 0,
-      cost: 0,
-    }).complete({
-      role: 'planner',
-      model: config.models.planner,
-      messages: [
-        {
-          role: 'user',
-          content: `Return plan JSON matching ${JSON.stringify(PlanSchema.toJSONSchema())}. Goal: ${goal}`,
-        },
-      ],
-    });
-    const plan = PlanSchema.parse(JSON.parse(response.content));
-    revisePlan(memory, plan, 'Human requested plan from current GOAL.md');
-    console.log('Plan saved.');
-    return;
-  }
-  if (command === 'run' || command === 'resume') {
-    let max = config.maxTasks;
-    if (args.length) {
-      if (args.length !== 2 || args[0] !== '--max-tasks')
-        throw new Error('Expected --max-tasks N');
-      max = z.coerce.number().int().positive().parse(args[1]);
+    const trace = new TraceStore(memory.dir);
+    try {
+      const planner = new TracedProvider(
+        new BudgetProvider(provider, config, { tokens: 0, cost: 0 }),
+        trace,
+        () => ({ runId: 'planning', taskId: null }),
+      );
+      const response = await planner.complete({
+        role: 'planner',
+        model: config.models.planner,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Return only valid plan JSON. Criteria must be executable and cover all task requirements. Preserve completed tasks exactly when revising.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              schema: PlanSchema.toJSONSchema(),
+              goal,
+              existing: memory.read('plan.json'),
+            }),
+          },
+        ],
+      });
+      revisePlan(
+        memory,
+        PlanSchema.parse(JSON.parse(response.content)),
+        'Human requested plan from current GOAL.md',
+      );
+      console.log('Plan saved.');
+    } finally {
+      trace.close();
     }
-    console.log(
-      JSON.stringify(await new Orchestrator(root, config, provider).run(max)),
-    );
     return;
   }
-  throw new Error(`Unknown command: ${command}`);
+  let max = config.maxTasks;
+  if (args.length) {
+    if (args.length !== 2 || args[0] !== '--max-tasks')
+      throw new Error('Expected --max-tasks N');
+    max = z.coerce.number().int().positive().parse(args[1]);
+  }
+  console.log(
+    JSON.stringify(
+      await new Orchestrator(root, config, provider).run(
+        Math.min(max, config.maxTasks),
+      ),
+    ),
+  );
 }
 if (
   process.argv[1] &&

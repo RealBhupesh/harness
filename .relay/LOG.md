@@ -13,3 +13,5 @@
 2026-10-04: M4 verified offline: provider protocol/tool decoding, transient retry, authentication rejection, abort signals, token/cost metering and checkpointed budget stop/resume. Live APIs not called; environment has no configured provider key.
 
 2026-10-04: Corrected a prematurely pushed budget edit. Full verification now passes: 23 tests, lint, typecheck, build. Added cap-stop/resume coverage that preserves the charged worker response before applying tools. The history records the correction without rewriting remote commits.
+
+2026-10-04: M5 verified: 25 tests, lint, typecheck, build. SQLite and JSONL record LLM/tool/phase events; persistence, redaction and escaped HTML report tested. Independent review requested before further concurrency changes.

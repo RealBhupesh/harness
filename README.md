@@ -13,3 +13,5 @@ In a target repository, run `relay init`, configure `.relay/config.json`, and pr
 The command runner is a restricted policy boundary, not an operating-system sandbox. Repository tests and package scripts execute code. Use only trusted repositories inside an isolated development container.
 
 `relay answer T1 "your answer"` records an answer and requeues a blocked task. Failed attempts remain in `.relay/worktrees/`. `relay resume` recovers saved phase, plan and tool progress after a process crash. Do not manually edit an active plan: use `relay plan` between tasks so completed tasks remain protected.
+
+`relay status` reports progress and estimated usage. `relay trace T1` prints persisted task events. `relay report` regenerates `.relay/report.html`; every completed run also generates it. SQLite and JSONL traces and checkpoints are local runtime files; add the ignore rules shown in `.gitignore` to target repositories. Trace text and Markdown/checkpoints redact recognized keys and injected credential values. Redaction and the secret scan are defense in depth, not exhaustive secret detection.

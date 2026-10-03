@@ -1,7 +1,7 @@
 # Relay state
-Current milestone: M5 Observability
-Current task: Trace store and reporting
-Last completed task: M4 Real providers
-Overall: 5/9 milestones
-Known blockers: GOAL.md is a placeholder; live provider behavior is untested without credentials.
-Next action: Add redacted JSONL and SQLite traces for LLM calls/tools/transitions, trace/status CLI, and an escaped static HTML report.
+Current milestone: M6 Parallelism
+Current task: Coordinator design and independent review
+Last completed task: M5 Observability
+Overall: 6/9 milestones
+Known blockers: GOAL.md placeholder; live providers untested without credentials; command policy is not an OS sandbox.
+Next action: Resolve independent review findings, then add a durable bounded parallel coordinator with merge-time full-suite regression rollback.

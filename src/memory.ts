@@ -1,3 +1,4 @@
+import { redact } from './redact.js';
 import {
   appendFileSync,
   closeSync,
@@ -22,7 +23,7 @@ export function atomicWrite(path: string, content: string) {
   const temp = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(temp, 'wx', 0o600);
   try {
-    writeFileSync(fd, content);
+    writeFileSync(fd, redact(content));
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -45,7 +46,7 @@ export class Memory {
   append(name: string, content: string) {
     appendFileSync(
       join(this.dir, name),
-      `${new Date().toISOString()} ${content}\n`,
+      `${new Date().toISOString()} ${redact(content)}\n`,
       { mode: 0o600 },
     );
   }

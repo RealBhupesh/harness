@@ -5,7 +5,7 @@
 - [x] M2 Verification
 - [x] M3 Memory and resume
 - [x] M4 Real providers
-- [ ] M5 Observability
+- [x] M5 Observability
 - [ ] M6 Parallelism
 - [ ] M7 Evals and scheduled runner
 - [ ] M8 Real objective plan (requires a human goal)
