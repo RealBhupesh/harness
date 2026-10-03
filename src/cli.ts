@@ -10,13 +10,14 @@ import { OpenAIProvider, AnthropicProvider } from './providers.js';
 import { BudgetProvider } from './budget.js';
 import { revisePlan } from './planner.js';
 import { answer } from './questions.js';
+import { ParallelCoordinator } from './parallel.js';
 import { Orchestrator } from './orchestrator.js';
 import { TraceStore, TracedProvider, report } from './trace.js';
 export async function main(argv = process.argv.slice(2), root = process.cwd()) {
   const [command, ...args] = argv;
   if (!command || command === '--help') {
     console.log(
-      'relay init | plan | run [--max-tasks N] | resume [--max-tasks N] | status | trace <taskId> | report | answer <taskId> <text>',
+      'relay init | plan | run [--max-tasks N] [--parallel N] | resume [--max-tasks N] | status | trace <taskId> | report | answer <taskId> <text>',
     );
     return;
   }
@@ -132,19 +133,49 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
     }
     return;
   }
-  let max = config.maxTasks;
-  if (args.length) {
-    if (args.length !== 2 || args[0] !== '--max-tasks')
-      throw new Error('Expected --max-tasks N');
-    max = z.coerce.number().int().positive().parse(args[1]);
+  let max = config.maxTasks,
+    width = config.parallel;
+  const existingParallel = memory.read('parallel.json');
+  if (existingParallel)
+    width = z
+      .object({ width: z.number().int().positive() })
+      .parse(JSON.parse(existingParallel)).width;
+  for (let i = 0; i < args.length; i += 2) {
+    const value = z.coerce
+      .number()
+      .int()
+      .positive()
+      .parse(args[i + 1]);
+    if (args[i] === '--max-tasks') max = value;
+    else if (args[i] === '--parallel') width = z.number().max(8).parse(value);
+    else throw new Error('Expected --max-tasks N or --parallel N');
   }
-  console.log(
-    JSON.stringify(
-      await new Orchestrator(root, config, provider).run(
-        Math.min(max, config.maxTasks),
+  if (width > 1 || existingParallel) {
+    const factory = (task: import('./schema.js').Task) =>
+      config.provider === 'mock'
+        ? new MockProvider(
+            z
+              .array(ResponseSchema)
+              .parse(
+                JSON.parse(
+                  memory.read(`mock-${task.id}.json`) ||
+                    memory.read('mock.json') ||
+                    '[]',
+                ),
+              ),
+          )
+        : config.provider === 'openai'
+          ? new OpenAIProvider(process.env.OPENAI_API_KEY ?? '', config)
+          : new AnthropicProvider(process.env.ANTHROPIC_API_KEY ?? '', config);
+    console.log(
+      JSON.stringify(
+        await new ParallelCoordinator(root, config, factory).run(width, max),
       ),
-    ),
-  );
+    );
+  } else
+    console.log(
+      JSON.stringify(await new Orchestrator(root, config, provider).run(max)),
+    );
 }
 if (
   process.argv[1] &&

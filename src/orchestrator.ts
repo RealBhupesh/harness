@@ -60,6 +60,8 @@ export class Orchestrator {
     cp.stopReason = null;
     if (this.provider instanceof MockProvider)
       this.provider.position = cp.mockCursor;
+    maxTasks = Math.min(maxTasks, this.config.maxTasks);
+    let attemptsStarted = cp.taskId ? 1 : 0;
     const startCompleted = cp.completed;
     const trace = new TraceStore(this.memory.dir);
     const context = () => ({ runId: cp.runId, taskId: cp.taskId });
@@ -133,6 +135,10 @@ export class Orchestrator {
               'Run wall-time cap reached; increase maxWallTimeMs to continue.',
             );
           if (cp.phase === 'SELECT') {
+            if (attemptsStarted >= maxTasks) {
+              cp.stopReason = 'Task attempt budget reached; run relay resume.';
+              break;
+            }
             const tasks = allTasks(plan);
             const task = tasks
               .filter(
@@ -164,6 +170,7 @@ export class Orchestrator {
             cp.awaitingToolFinish = false;
             task.status = 'in_progress';
             task.attempts++;
+            attemptsStarted++;
             transition('PREPARE_CONTEXT');
           } else if (cp.phase === 'PREPARE_CONTEXT') {
             this.git.prepare(cp.branch!, cp.baseSha!);
@@ -288,6 +295,13 @@ export class Orchestrator {
                 cp.verificationTree ?? undefined,
               );
             else if (
+              taskGit().run(['rev-parse', 'HEAD^{tree}']) !==
+              cp.verificationTree
+            )
+              throw new Error(
+                'Recovered commit differs from verified artifact',
+              );
+            else if (
               !taskGit()
                 .run(['log', '-1', '--format=%s'])
                 .startsWith(`feat(${findTask().id}):`)
@@ -344,7 +358,9 @@ export class Orchestrator {
           transition('SELECT');
         }
       }
-      cp.stopReason ??= 'Task budget reached; run relay resume.';
+      cp.stopReason ??= allTasks(plan).every((task) => task.status === 'done')
+        ? 'All tasks complete.'
+        : 'Task budget reached; run relay resume.';
       transition(cp.phase);
       report(this.memory, trace);
       return {

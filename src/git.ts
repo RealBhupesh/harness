@@ -33,7 +33,17 @@ export class Git {
   }
   prepare(branch: string, baseSha: string): string {
     const path = this.worktree(branch);
-    if (existsSync(path)) return path;
+    if (existsSync(path)) {
+      const existing = new Git(path);
+      if (
+        existing.run(['rev-parse', '--show-toplevel']) !== path ||
+        existing.branch() !== branch
+      )
+        throw new Error(
+          'Attempt worktree metadata is incomplete or unexpected',
+        );
+      return path;
+    }
     if (this.changes().length)
       throw new Error('Repository must be clean before a task');
     mkdirSync(join(this.root, '.relay', 'worktrees'), { recursive: true });

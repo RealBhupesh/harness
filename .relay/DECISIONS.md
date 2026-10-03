@@ -11,3 +11,6 @@ Publish a checkpoint containing the plan snapshot before updating derived plan/M
 
 ## Provider budgets
 Use native HTTPS protocols rather than SDKs. Role models and per-million token rates are configurable; default rates are conservative examples and must match the selected model before live use. Reserve requests conservatively with UTF-8 input bytes and cap output. Meter observed usage durably. Estimated costs are not a guarantee about remote billing, cached-token discounts, reasoning tokens or network failures charged by the provider. Preserve charged worker responses across budget stops.
+
+## Parallel coordination
+Use bounded batches of dependency-ready tasks rather than a continuously refilled worker queue. Worker attempt worktrees remain isolated; integration is serial and checks the combined tree. Journal plan and usage before publishing derived memory. Preserve failed branches; explicit revert commits repair regressions. Pin each independently verified worker SHA/tree, merge that SHA, and check the final checkout remains the pinned integration artifact. Reconcile child checkpoints and model-response ledgers before granting resumed budgets. Local rollback cleanup must finish even when budgets are exhausted. Answers and replans acquire the coordinator lock rather than racing a running plan.

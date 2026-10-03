@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 const root = resolve(process.argv[2] ?? '/tmp/relay-demo');
+const parallel = process.argv.includes('--parallel');
 if (existsSync(root))
   throw new Error('Choose a new empty destination for the demo.');
 mkdirSync(root, { recursive: true });
@@ -47,11 +48,18 @@ const plan = {
     },
   ],
 };
+if (parallel) {
+  const second = JSON.parse(JSON.stringify(plan.milestones[0].tasks[0]));
+  second.id = 'T2';
+  second.title = 'Add second greeting';
+  second.acceptance[0].argv = ['node', '--test', 'second.test.mjs'];
+  plan.milestones[0].tasks.push(second);
+}
 writeFileSync(join(root, '.relay/plan.json'), JSON.stringify(plan));
 writeFileSync(
   join(root, '.relay/config.json'),
   JSON.stringify({
-    verificationCommands: [['node', '--test', 'greet.test.mjs']],
+    verificationCommands: [['node', '--test']],
   }),
 );
 writeFileSync(
@@ -93,7 +101,24 @@ writeFileSync(
   ]),
 );
 const cli = resolve('dist/src/cli.js');
-execFileSync(process.execPath, [cli, 'run'], { cwd: root, stdio: 'inherit' });
+if (parallel) {
+  const script = JSON.parse(
+    (await import('node:fs')).readFileSync(
+      join(root, '.relay/mock.json'),
+      'utf8',
+    ),
+  );
+  writeFileSync(join(root, '.relay/mock-T1.json'), JSON.stringify(script));
+  writeFileSync(
+    join(root, '.relay/mock-T2.json'),
+    JSON.stringify(script).replaceAll('greet.', 'second.'),
+  );
+}
+execFileSync(
+  process.execPath,
+  [cli, 'run', ...(parallel ? ['--parallel', '2', '--max-tasks', '2'] : [])],
+  { cwd: root, stdio: 'inherit' },
+);
 execFileSync(process.execPath, [cli, 'status'], {
   cwd: root,
   stdio: 'inherit',

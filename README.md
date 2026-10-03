@@ -15,3 +15,9 @@ The command runner is a restricted policy boundary, not an operating-system sand
 `relay answer T1 "your answer"` records an answer and requeues a blocked task. Failed attempts remain in `.relay/worktrees/`. `relay resume` recovers saved phase, plan and tool progress after a process crash. Do not manually edit an active plan: use `relay plan` between tasks so completed tasks remain protected.
 
 `relay status` reports progress and estimated usage. `relay trace T1` prints persisted task events. `relay report` regenerates `.relay/report.html`; every completed run also generates it. SQLite and JSONL traces and checkpoints are local runtime files; add the ignore rules shown in `.gitignore` to target repositories. Trace text and Markdown/checkpoints redact recognized keys and injected credential values. Redaction and the secret scan are defense in depth, not exhaustive secret detection.
+
+## Parallel execution
+
+Use `relay run --parallel 2 --max-tasks 5` for independent tasks. Each worker runs in its own worktree; verified branches merge one at a time, with the required suite and acceptance checks run again on the combined tree. Conflicts requeue the task; integration failures produce an explicit revert commit. The attempt cap includes failed attempts. Resume restores the saved width and reconciles worker spending before allocating more budget. Answers and replans require the runner to be stopped.
+
+Try `node examples/mock-demo.mjs /tmp/relay-parallel-new --parallel` after building. It executes two independent tasks through the compiled CLI. Keep failed worktrees for inspection. If verification changes the main checkout, Relay pauses and preserves those changes for inspection instead of claiming success.

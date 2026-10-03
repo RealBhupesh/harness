@@ -1,7 +1,7 @@
 # Relay state
-Current milestone: M6 Parallelism
-Current task: Coordinator design and independent review
-Last completed task: M5 Observability
-Overall: 6/9 milestones
+Current milestone: M7 Evals and scheduled runner
+Current task: Offline scorecard and disabled Actions workflow
+Last completed task: M6 Parallelism
+Overall: 7/9 milestones (78%)
 Known blockers: GOAL.md placeholder; live providers untested without credentials; command policy is not an OS sandbox.
-Next action: Resolve independent review findings, then add a durable bounded parallel coordinator with merge-time full-suite regression rollback.
+Next action: Add real isolated evaluation fixtures, measure oracle-backed success/attempts/false positives/cost, and add a disabled scheduled PR workflow.

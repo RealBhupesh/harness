@@ -83,6 +83,7 @@ export const ConfigSchema = z.object({
   models: z
     .object({ planner: z.string(), worker: z.string(), verifier: z.string() })
     .default({ planner: 'mock', worker: 'mock', verifier: 'mock' }),
+  parallel: z.number().int().min(1).max(8).default(1),
   maxOutputTokens: z.number().int().positive().default(2048),
   prices: z
     .object({

@@ -84,6 +84,25 @@ export class Memory {
   loadPlan(): Plan {
     return PlanSchema.parse(JSON.parse(this.read('plan.json')));
   }
+  committedPlan(): Plan {
+    const text = this.read('parallel.json');
+    if (text)
+      return PlanSchema.parse((JSON.parse(text) as { plan: unknown }).plan);
+    return this.checkpoint()?.snapshotPlan ?? this.loadPlan();
+  }
+  publishPlan(plan: Plan) {
+    const cp = this.checkpoint(),
+      text = this.read('parallel.json');
+    if (text) {
+      const journal = JSON.parse(text) as Record<string, unknown>;
+      const snapshot = CheckpointSchema.parse(journal.checkpoint);
+      journal.plan = plan;
+      journal.checkpoint = { ...snapshot, snapshotPlan: plan };
+      this.write('parallel.json', JSON.stringify(journal, null, 2));
+      this.saveCheckpoint({ ...snapshot, snapshotPlan: plan });
+    } else if (cp) this.saveCheckpoint({ ...cp, snapshotPlan: plan });
+    this.savePlan(plan);
+  }
   savePlan(plan: Plan) {
     plan = PlanSchema.parse(plan);
     this.write('plan.json', JSON.stringify(plan, null, 2) + '\n');
@@ -117,15 +136,17 @@ export class Memory {
   state(plan: Plan, cp: Checkpoint) {
     const tasks = allTasks(plan),
       done = tasks.filter((t) => t.status === 'done'),
-      current = tasks.find((t) => t.id === cp.taskId);
+      current =
+        tasks.find((t) => t.id === cp.taskId) ??
+        tasks.find((t) => t.status === 'in_progress');
     this.write(
       'STATE.md',
-      `# Relay state\n\nCurrent milestone: ${plan.milestones.find((m) => m.tasks.some((t) => t.id === cp.taskId))?.title ?? 'none'}\nCurrent task: ${current?.id ?? 'none'}\nPhase: ${cp.phase}\nLast completed task: ${done.at(-1)?.id ?? 'none'}\nOverall: ${Math.round((done.length / tasks.length) * 100)}% (${done.length}/${tasks.length})\nKnown blockers: ${
+      `# Relay state\n\nCurrent milestone: ${plan.milestones.find((m) => m.tasks.some((t) => t.id === current?.id))?.title ?? 'none'}\nCurrent task: ${current?.id ?? 'none'}\nPhase: ${cp.phase}\nLast completed task: ${done.at(-1)?.id ?? 'none'}\nOverall: ${Math.round((done.length / tasks.length) * 100)}% (${done.length}/${tasks.length})\nKnown blockers: ${
         tasks
           .filter((t) => t.status === 'blocked')
           .map((t) => `${t.id}: ${t.notes.at(-1)}`)
           .join('; ') || 'none'
-      }\nStop reason: ${cp.stopReason ?? 'none'}\nNext action: ${cp.stopReason ?? (done.length === tasks.length ? 'Review completed results.' : `Run relay resume to continue ${cp.phase}${cp.taskId ? ' for ' + cp.taskId : ''}.`)}\n`,
+      }\nStop reason: ${cp.stopReason ?? 'none'}\nNext action: ${done.length === tasks.length ? 'Review completed results.' : (cp.stopReason ?? `Run relay resume to continue ${cp.phase}${cp.taskId ? ' for ' + cp.taskId : ''}.`)}\n`,
     );
   }
 }
