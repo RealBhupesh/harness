@@ -91,6 +91,7 @@ test('meter stops at cap and does not silently discard usage', async () => {
     { ...defaultConfig(), maxCost: 1 },
     usage,
   );
+  await wrapped.complete(request);
   await expect(wrapped.complete(request)).rejects.toBeInstanceOf(
     BudgetExceeded,
   );
