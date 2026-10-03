@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { readFileSync, symlinkSync } from 'node:fs';
+import { readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -58,46 +58,56 @@ test('tool policy prevents traversal, symlink escapes and shell injection', asyn
     tools.run({ name: 'write', args: { path: '.env', content: 'secret' } }),
   ).rejects.toThrow();
 });
-test('mock loop verifies acceptance and produces a real task commit on main', async () => {
-  const root = fixture();
-  const memory = new Memory(root);
-  memory.savePlan(PlanSchema.parse(plan));
-  const provider = new MockProvider([
-    {
-      content: '',
-      toolCalls: [
-        {
-          name: 'write',
-          args: { path: 'hello.txt', content: 'Hello Relay\n' },
-        },
-      ],
-    },
-    { content: 'done', toolCalls: [] },
-    {
-      content: JSON.stringify({
-        criteria: [
-          { id: 'A1', passed: true, evidence: 'Greeting read and checked' },
+for (const ignoreMemory of [false, true])
+  test(`mock loop verifies acceptance and commits with ignored metadata=${ignoreMemory}`, async () => {
+    const root = fixture();
+    if (ignoreMemory) {
+      writeFileSync(join(root, '.gitignore'), '.relay/\n');
+      execFileSync('git', ['add', '.gitignore'], { cwd: root });
+      execFileSync('git', ['commit', '-m', 'ignore runtime metadata'], {
+        cwd: root,
+      });
+    }
+    const memory = new Memory(root);
+    memory.savePlan(PlanSchema.parse(plan));
+    const provider = new MockProvider([
+      {
+        content: '',
+        toolCalls: [
+          {
+            name: 'write',
+            args: { path: 'hello.txt', content: 'Hello Relay\n' },
+          },
         ],
-        summary: 'Verified',
+      },
+      { content: 'done', toolCalls: [] },
+      {
+        content: JSON.stringify({
+          criteria: [
+            { id: 'A1', passed: true, evidence: 'Greeting read and checked' },
+          ],
+          summary: 'Verified',
+        }),
+      },
+    ]);
+    const loop = new Orchestrator(root, defaultConfig(), provider);
+    const result = await loop.run();
+    expect(result.completed).toBe(1);
+    expect(memory.loadPlan().milestones[0]?.tasks[0]?.status).toBe('done');
+    expect(readFileSync(join(root, 'hello.txt'), 'utf8')).toBe('Hello Relay\n');
+    expect(
+      execFileSync('git', ['branch', '--show-current'], {
+        cwd: root,
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('main');
+    expect(
+      execFileSync('git', ['log', '-1', '--format=%s'], {
+        cwd: root,
+        encoding: 'utf8',
       }),
-    },
-  ]);
-  const loop = new Orchestrator(root, defaultConfig(), provider);
-  const result = await loop.run();
-  expect(result.completed).toBe(1);
-  expect(memory.loadPlan().milestones[0]?.tasks[0]?.status).toBe('done');
-  expect(readFileSync(join(root, 'hello.txt'), 'utf8')).toBe('Hello Relay\n');
-  expect(
-    execFileSync('git', ['branch', '--show-current'], {
-      cwd: root,
-      encoding: 'utf8',
-    }).trim(),
-  ).toBe('main');
-  expect(
-    execFileSync('git', ['log', '-1', '--format=%s'], {
-      cwd: root,
-      encoding: 'utf8',
-    }),
-  ).toContain('T1');
-  expect(readFileSync(join(root, '.relay/STATE.md'), 'utf8')).toContain('100%');
-});
+    ).toContain('T1');
+    expect(readFileSync(join(root, '.relay/STATE.md'), 'utf8')).toContain(
+      '100%',
+    );
+  });

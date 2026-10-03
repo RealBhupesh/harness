@@ -21,3 +21,9 @@ The command runner is a restricted policy boundary, not an operating-system sand
 Use `relay run --parallel 2 --max-tasks 5` for independent tasks. Each worker runs in its own worktree; verified branches merge one at a time, with the required suite and acceptance checks run again on the combined tree. Conflicts requeue the task; integration failures produce an explicit revert commit. The attempt cap includes failed attempts. Resume restores the saved width and reconciles worker spending before allocating more budget. Answers and replans require the runner to be stopped.
 
 Try `node examples/mock-demo.mjs /tmp/relay-parallel-new --parallel` after building. It executes two independent tasks through the compiled CLI. Keep failed worktrees for inspection. If verification changes the main checkout, Relay pauses and preserves those changes for inspection instead of claiming success.
+
+## Evaluations and automation
+
+Run `pnpm eval` for isolated offline benchmarks and an oracle-backed scorecard. Optional real-provider runs require explicit configuration; see [evals/README.md](evals/README.md). The [scheduled workflow](docs/continuous-running.md) is disabled by default and opens a progress PR only when explicitly enabled. Interrupted Actions worktrees require manual recovery; local crash resume is tested.
+
+[Cloud setup](docs/cloud-environment.md) describes writable caches, reusable installation, and continuation instructions. `GOAL.md` still needs your real objective before Relay can generate the downstream plan.

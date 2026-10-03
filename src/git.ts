@@ -54,11 +54,35 @@ export class Git {
     return path;
   }
   diff(): string {
-    this.run(['add', '--all', '--', '.', ':(exclude).relay']);
+    this.stage();
     return this.run(['diff', '--cached', '--no-ext-diff', '--no-textconv']);
   }
+  private stage() {
+    // Enumerate changes rather than naming an ignored metadata directory in an exclusion pathspec.
+    const names = [
+      ...new Set(
+        this.run([
+          'ls-files',
+          '--modified',
+          '--deleted',
+          '--others',
+          '--exclude-standard',
+          '-z',
+        ])
+          .split('\0')
+          .filter((name) => name && !name.startsWith('.relay/')),
+      ),
+    ];
+    for (let start = 0; start < names.length; start += 100)
+      this.run([
+        'add',
+        '--all',
+        '--',
+        ...names.slice(start, start + 100).map((name) => `:(literal)${name}`),
+      ]);
+  }
   commit(taskId: string, title: string, expectedTree?: string) {
-    this.run(['add', '--all', '--', '.', ':(exclude).relay']);
+    this.stage();
     if (expectedTree && this.run(['write-tree']) !== expectedTree)
       throw new Error('Verification artifact changed before commit');
     const names = this.run(['diff', '--cached', '--name-only', '-z'])

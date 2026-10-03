@@ -1,0 +1,110 @@
+name: Relay scheduled runner
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: relay-scheduled-runner
+  cancel-in-progress: false
+jobs:
+  relay:
+    # Opt in only after providing a real goal, reviewed plan, provider config and secrets.
+    if: ${{ vars.RELAY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Continue the automation branch
+        run: |
+          git config user.name 'Relay Bot'
+          git config user.email 'relay-bot@users.noreply.github.com'
+          if git show-ref --verify --quiet refs/remotes/origin/relay/automation; then
+            git checkout -b relay/automation origin/relay/automation
+            git merge --no-edit origin/main
+          else
+            git checkout -b relay/automation
+          fi
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Validate objective, plan and provider configuration
+        env:
+          RELAY_CONFIG: ${{ vars.RELAY_CONFIG }}
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {ConfigSchema,PlanSchema,allTasks} from './dist/src/schema.js';
+          const goal=readFileSync('GOAL.md','utf8');
+          if(!goal.trim()||goal.includes('<<YOUR GOAL HERE')) throw new Error('Supply the actual GOAL.md first');
+          const plan=PlanSchema.parse(JSON.parse(readFileSync('.relay/plan.json','utf8')));
+          if(allTasks(plan).some(t=>t.status==='in_progress')) throw new Error('Inspect the previous interrupted run artifact before restarting on a new runner');
+          const config=ConfigSchema.parse(JSON.parse(process.env.RELAY_CONFIG||'{}'));
+          if(config.provider==='mock') throw new Error('RELAY_CONFIG must choose a real provider with appropriate models, prices and budgets');
+          writeFileSync('.relay/config.json',JSON.stringify({...config,parallel:1,maxTasks:Math.min(config.maxTasks,5),maxWallTimeMs:Math.min(config.maxWallTimeMs,1200000)},null,2));
+          JS
+      - name: Resume up to five task attempts
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm relay resume --max-tasks 5
+      - name: Confirm execution stopped between tasks
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs';
+          const checkpoint=JSON.parse(readFileSync('.relay/checkpoint.json','utf8'));
+          if(checkpoint.taskId) throw new Error('Execution paused inside a task; preserve and inspect the recovery artifact');
+          JS
+      - name: Commit progress and open or update its PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -- .relay/plan.json .relay/PLAN.md .relay/STATE.md .relay/LOG.md
+          for path in .relay/DECISIONS.md .relay/LEARNINGS.md .relay/QUESTIONS.md; do
+            if test -f "$path"; then git add -- "$path"; fi
+          done
+          if ! git diff --cached --quiet; then git commit -m 'chore(relay): record scheduled progress'; fi
+          if git diff --quiet origin/main HEAD; then exit 0; fi
+          gh auth setup-git
+          git push origin HEAD:refs/heads/relay/automation
+          existing_pr=$(gh pr list --head relay/automation --state open --json url --jq '.[0].url')
+          if test -z "$existing_pr"; then
+            cat > /tmp/relay-pr-body.md <<'BODY'
+          Relay completed a bounded run against the committed objective and plan. Each task commit passed its configured required checks and independent verification.
+
+          Review task changes and `.relay/STATE.md` before merging. Estimated usage and detailed execution evidence are available in the workflow artifact.
+          BODY
+            gh pr create --base main --head relay/automation --title 'Relay: verified autonomous progress' --body-file /tmp/relay-pr-body.md
+          fi
+      - name: Preserve execution evidence for inspection
+        if: always()
+        run: |
+          git bundle create .relay/recovery.bundle --all
+          if test -d .relay/worktrees; then
+            tar --exclude=node_modules --exclude='.env*' --exclude='*.pem' --exclude='*.key' -czf .relay/recovery-worktrees.tar.gz -C .relay worktrees
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relay-evidence-${{ github.run_id }}
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .relay/*.md
+            .relay/plan.json
+            .relay/checkpoint.json
+            .relay/traces.jsonl
+            .relay/report.html
+            .relay/recovery.bundle
+            .relay/recovery-worktrees.tar.gz

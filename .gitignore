@@ -10,3 +10,9 @@ coverage/
 .relay/run.lock
 .relay/report.html
 .relay/worktrees/
+.relay/parallel.json
+.relay/active-command.json
+.relay/worker-owner.json
+.relay/*.tmp
+.relay/recovery.bundle
+.relay/recovery-worktrees.tar.gz
