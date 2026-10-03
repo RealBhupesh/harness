@@ -78,6 +78,18 @@ writeFileSync(
       ],
     },
     { content: 'Greeting implemented.', toolCalls: [] },
+    {
+      content: JSON.stringify({
+        criteria: [
+          {
+            id: 'A1',
+            passed: true,
+            evidence: 'node --test greet.test.mjs passed',
+          },
+        ],
+        summary: 'Greeting verified',
+      }),
+    },
   ]),
 );
 const cli = resolve('dist/src/cli.js');

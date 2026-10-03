@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { ConfigSchema, PlanSchema, allTasks } from './schema.js';
 import { Memory } from './memory.js';
 import { MockProvider, ResponseSchema } from './provider.js';
+import { revisePlan } from './planner.js';
+import { answer } from './questions.js';
 import { Orchestrator } from './orchestrator.js';
 export async function main(argv = process.argv.slice(2), root = process.cwd()) {
   const [command, ...args] = argv;
@@ -36,6 +38,12 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
   const config = ConfigSchema.parse(
     JSON.parse(memory.read('config.json') || '{}'),
   );
+  if (command === 'answer') {
+    if (!args[0]) throw new Error('Expected task ID and answer');
+    answer(memory, args[0], args.slice(1).join(' '));
+    console.log('Answer saved; task is eligible for retry.');
+    return;
+  }
   if (command === 'status') {
     const plan = memory.loadPlan();
     console.log(
@@ -64,7 +72,7 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
       ],
     });
     const plan = PlanSchema.parse(JSON.parse(response.content));
-    memory.savePlan(plan);
+    revisePlan(memory, plan, 'Human requested plan from current GOAL.md');
     console.log('Plan saved.');
     return;
   }

@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 export class Git {
   constructor(readonly root: string) {}
@@ -21,11 +23,20 @@ export class Git {
       .filter(Boolean)
       .filter((line) => !line.slice(3).startsWith('.relay/'));
   }
-  prepare(branch: string) {
-    if (this.branch() === branch) return;
+  worktree(branch: string): string {
+    return join(this.root, '.relay', 'worktrees', branch.replaceAll('/', '-'));
+  }
+  prepare(branch: string, baseSha: string): string {
+    const path = this.worktree(branch);
+    if (existsSync(path)) return path;
     if (this.changes().length)
       throw new Error('Repository must be clean before a task');
-    this.run(['checkout', '-b', branch]);
+    mkdirSync(join(this.root, '.relay', 'worktrees'), { recursive: true });
+    this.run(['worktree', 'add', '-b', branch, path, baseSha]);
+    const modules = join(this.root, 'node_modules');
+    if (existsSync(modules))
+      symlinkSync(modules, join(path, 'node_modules'), 'dir');
+    return path;
   }
   commit(taskId: string, title: string) {
     this.run(['add', '--all', '--', '.', ':(exclude).relay']);
@@ -47,10 +58,6 @@ export class Git {
       '-m',
       `feat(${taskId}): ${title.replace(/[\r\n]/g, ' ').slice(0, 120)}`,
     ]);
-  }
-  merge(base: string, branch: string) {
-    this.run(['checkout', base]);
-    if (this.run(['merge-base', '--is-ancestor', branch, base]) === '') return;
   }
   integrate(base: string, branch: string) {
     this.run(['checkout', base]);

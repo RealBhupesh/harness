@@ -2,7 +2,7 @@
 
 - [x] M0 Bootstrap
 - [x] M1 Core loop
-- [ ] M2 Verification
+- [x] M2 Verification
 - [ ] M3 Memory and resume
 - [ ] M4 Real providers
 - [ ] M5 Observability

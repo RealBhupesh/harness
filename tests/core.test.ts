@@ -1,11 +1,5 @@
-import { afterEach, expect, test } from 'vitest';
-import {
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-  symlinkSync,
-} from 'node:fs';
+import { expect, test } from 'vitest';
+import { readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -15,51 +9,7 @@ import { MockProvider } from '../src/provider.js';
 import { ToolRunner } from '../src/tools.js';
 import { Orchestrator } from '../src/orchestrator.js';
 
-const roots: string[] = [];
-export function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'relay-test-'));
-  roots.push(root);
-  execFileSync('git', ['init', '-b', 'main', root]);
-  execFileSync('git', ['config', 'user.email', 'relay@example.test'], {
-    cwd: root,
-  });
-  execFileSync('git', ['config', 'user.name', 'Relay Test'], { cwd: root });
-  writeFileSync(
-    join(root, '.gitignore'),
-    '.relay/checkpoint.json\n.relay/run.lock\n.relay/*.sqlite*\n.relay/traces.jsonl\n.relay/report.html\n',
-  );
-  writeFileSync(join(root, 'GOAL.md'), 'Create a greeting file.');
-  execFileSync('git', ['add', '.'], { cwd: root });
-  execFileSync('git', ['commit', '-m', 'initial'], { cwd: root });
-  return root;
-}
-afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true });
-});
-const task = {
-  id: 'T1',
-  title: 'Greeting',
-  description: 'Write hello.txt',
-  acceptance: [
-    {
-      id: 'A1',
-      description: 'Greeting exists',
-      kind: 'fileContains',
-      path: 'hello.txt',
-      text: 'Hello Relay',
-    },
-  ],
-  dependencies: [],
-  size: 'S',
-  status: 'todo',
-  attempts: 0,
-  priority: 1,
-};
-export const plan = {
-  objective: 'Greeting',
-  milestones: [{ id: 'M1', title: 'First greeting', tasks: [task] }],
-};
+import { fixture, plan, task } from './helpers.js';
 test('rejects cyclic and unknown dependencies rather than hanging selection', () => {
   expect(
     PlanSchema.safeParse({
@@ -123,6 +73,14 @@ test('mock loop verifies acceptance and produces a real task commit on main', as
       ],
     },
     { content: 'done', toolCalls: [] },
+    {
+      content: JSON.stringify({
+        criteria: [
+          { id: 'A1', passed: true, evidence: 'Greeting read and checked' },
+        ],
+        summary: 'Verified',
+      }),
+    },
   ]);
   const loop = new Orchestrator(root, defaultConfig(), provider);
   const result = await loop.run();
