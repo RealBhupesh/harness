@@ -83,6 +83,27 @@ export const ConfigSchema = z.object({
   models: z
     .object({ planner: z.string(), worker: z.string(), verifier: z.string() })
     .default({ planner: 'mock', worker: 'mock', verifier: 'mock' }),
+  maxOutputTokens: z.number().int().positive().default(2048),
+  prices: z
+    .object({
+      planner: z.object({
+        input: z.number().positive(),
+        output: z.number().positive(),
+      }),
+      worker: z.object({
+        input: z.number().positive(),
+        output: z.number().positive(),
+      }),
+      verifier: z.object({
+        input: z.number().positive(),
+        output: z.number().positive(),
+      }),
+    })
+    .default({
+      planner: { input: 5, output: 15 },
+      worker: { input: 5, output: 15 },
+      verifier: { input: 5, output: 15 },
+    }),
   maxAttempts: z.number().int().min(1).max(3).default(3),
   maxSteps: z.number().int().positive().default(30),
   taskTimeoutMs: z.number().int().positive().default(120000),
@@ -136,6 +157,13 @@ export const CheckpointSchema = z.object({
   pendingTools: z.array(ToolCallSchema).default([]),
   toolIndex: z.number().int().nonnegative().default(0),
   awaitingToolFinish: z.boolean().default(false),
+  usage: z
+    .object({
+      tokens: z.number().nonnegative(),
+      cost: z.number().nonnegative(),
+    })
+    .default({ tokens: 0, cost: 0 }),
+  activeWallMs: z.number().nonnegative().default(0),
   mockCursor: z.number().int().nonnegative().default(0),
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;

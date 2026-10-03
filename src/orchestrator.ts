@@ -1,3 +1,4 @@
+import { BudgetProvider, BudgetExceeded } from './budget.js';
 import { RunLock } from './lock.js';
 import { MockProvider } from './provider.js';
 import { CheckpointSchema } from './schema.js';
@@ -59,7 +60,12 @@ export class Orchestrator {
     if (this.provider instanceof MockProvider)
       this.provider.position = cp.mockCursor;
     const startCompleted = cp.completed;
+    const provider = new BudgetProvider(this.provider, this.config, cp.usage);
+    let lastTick = Date.now();
     const transition = (phase: Phase) => {
+      const now = Date.now();
+      cp.activeWallMs += now - lastTick;
+      lastTick = now;
       cp.phase = phase;
       cp.snapshotPlan = plan;
       if (this.provider instanceof MockProvider)
@@ -80,6 +86,20 @@ export class Orchestrator {
     transition(cp.phase);
     while (cp.completed - startCompleted < maxTasks) {
       try {
+        if (
+          cp.usage.tokens >= this.config.maxTokens ||
+          cp.usage.cost >= this.config.maxCost
+        )
+          throw new BudgetExceeded(
+            'Token or cost cap reached; increase the configured cap to continue.',
+          );
+        if (
+          cp.activeWallMs + Date.now() - lastTick >=
+          this.config.maxWallTimeMs
+        )
+          throw new BudgetExceeded(
+            'Run wall-time cap reached; increase maxWallTimeMs to continue.',
+          );
         if (cp.phase === 'SELECT') {
           const tasks = allTasks(plan);
           const task = tasks
@@ -137,7 +157,7 @@ export class Orchestrator {
               Date.now() - cp.taskStarted > this.config.taskTimeoutMs
             )
               throw new Error('Worker task limit exceeded');
-            const response = await this.provider.complete({
+            const response = await provider.complete({
               role: 'worker',
               model: this.config.models.worker,
               messages: cp.messages,
@@ -149,11 +169,17 @@ export class Orchestrator {
               ),
             });
             cp.steps++;
-            cp.messages.push({ role: 'assistant', content: response.content });
+            cp.messages.push({
+              role: 'assistant',
+              content:
+                response.content ||
+                JSON.stringify({ toolCalls: response.toolCalls }),
+            });
             cp.pendingTools = response.toolCalls;
             cp.toolIndex = 0;
             cp.awaitingToolFinish = true;
             transition('EXECUTE');
+            continue;
           }
           while (cp.toolIndex < cp.pendingTools.length) {
             const call = cp.pendingTools[cp.toolIndex]!;
@@ -174,7 +200,7 @@ export class Orchestrator {
           const evidence = await verify(
             findTask(),
             tools(),
-            this.provider,
+            provider,
             this.config,
             taskGit().run(['diff', 'HEAD']),
           );
@@ -210,6 +236,11 @@ export class Orchestrator {
           transition('SELECT');
         }
       } catch (error) {
+        if (error instanceof BudgetExceeded) {
+          cp.stopReason = error.message;
+          transition(cp.phase);
+          break;
+        }
         if (!cp.taskId) throw error;
         const task = findTask(),
           message = error instanceof Error ? error.message : String(error);

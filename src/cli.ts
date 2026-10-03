@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { ConfigSchema, PlanSchema, allTasks } from './schema.js';
 import { Memory } from './memory.js';
 import { MockProvider, ResponseSchema } from './provider.js';
+import { OpenAIProvider, AnthropicProvider } from './providers.js';
+import { BudgetProvider } from './budget.js';
 import { revisePlan } from './planner.js';
 import { answer } from './questions.js';
 import { Orchestrator } from './orchestrator.js';
@@ -51,17 +53,24 @@ export async function main(argv = process.argv.slice(2), root = process.cwd()) {
     );
     return;
   }
-  if (config.provider !== 'mock')
-    throw new Error('Real provider adapters are not implemented yet.');
-  const script = z
-    .array(ResponseSchema)
-    .parse(JSON.parse(memory.read('mock.json') || '[]'));
-  const provider = new MockProvider(script);
+  const provider =
+    config.provider === 'mock'
+      ? new MockProvider(
+          z
+            .array(ResponseSchema)
+            .parse(JSON.parse(memory.read('mock.json') || '[]')),
+        )
+      : config.provider === 'openai'
+        ? new OpenAIProvider(process.env.OPENAI_API_KEY ?? '', config)
+        : new AnthropicProvider(process.env.ANTHROPIC_API_KEY ?? '', config);
   if (command === 'plan') {
     const goal = readFileSync(join(root, 'GOAL.md'), 'utf8');
     if (goal.includes('<<YOUR GOAL HERE'))
       throw new Error('Replace the GOAL.md placeholder with a real objective.');
-    const response = await provider.complete({
+    const response = await new BudgetProvider(provider, config, {
+      tokens: 0,
+      cost: 0,
+    }).complete({
       role: 'planner',
       model: config.models.planner,
       messages: [

@@ -69,3 +69,49 @@ test('an active run lock prevents a second orchestrator from modifying checkpoin
   const unlock = new RunLock(memory.dir).acquire();
   unlock();
 });
+test('a budget stop preserves the worker response and resumes after a cap increase', async () => {
+  const root = fixture(),
+    memory = new Memory(root);
+  memory.savePlan(PlanSchema.parse(plan));
+  const responses = [
+    {
+      content: '',
+      toolCalls: [
+        {
+          name: 'write' as const,
+          args: { path: 'hello.txt', content: 'Hello Relay' },
+        },
+      ],
+      usage: { tokens: 5, cost: 1 },
+    },
+    { content: 'done' },
+    {
+      content: JSON.stringify({
+        criteria: [{ id: 'A1', passed: true, evidence: 'Greeting exists' }],
+        summary: 'Verified',
+      }),
+    },
+  ];
+  const { MockProvider } = await import('../src/provider.js');
+  const { Orchestrator } = await import('../src/orchestrator.js');
+  const { defaultConfig } = await import('../src/schema.js');
+  expect(
+    (
+      await new Orchestrator(
+        root,
+        { ...defaultConfig(), maxCost: 1 },
+        new MockProvider(responses),
+      ).run()
+    ).reason,
+  ).toContain('cap');
+  expect(memory.checkpoint()?.pendingTools).toHaveLength(1);
+  expect(
+    (
+      await new Orchestrator(
+        root,
+        { ...defaultConfig(), maxCost: 2 },
+        new MockProvider(responses),
+      ).run()
+    ).completed,
+  ).toBe(1);
+});

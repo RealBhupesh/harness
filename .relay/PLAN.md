@@ -4,7 +4,7 @@
 - [x] M1 Core loop
 - [x] M2 Verification
 - [x] M3 Memory and resume
-- [ ] M4 Real providers
+- [x] M4 Real providers
 - [ ] M5 Observability
 - [ ] M6 Parallelism
 - [ ] M7 Evals and scheduled runner

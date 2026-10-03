@@ -10,6 +10,7 @@ export type Request = {
   model: string;
   messages: Message[];
   signal?: AbortSignal;
+  maxOutputTokens?: number;
 };
 export const ResponseSchema = z.object({
   content: z.string(),
