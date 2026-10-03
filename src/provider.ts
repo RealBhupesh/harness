@@ -27,6 +27,12 @@ export interface LLMProvider {
 }
 export class MockProvider implements LLMProvider {
   private cursor = 0;
+  get position() {
+    return this.cursor;
+  }
+  set position(value: number) {
+    this.cursor = value;
+  }
   constructor(
     private readonly responses: {
       content: string;

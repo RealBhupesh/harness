@@ -1,3 +1,6 @@
+import { RunLock } from './lock.js';
+import { MockProvider } from './provider.js';
+import { CheckpointSchema } from './schema.js';
 import { randomUUID } from 'node:crypto';
 import { Memory } from './memory.js';
 import { Git } from './git.js';
@@ -24,10 +27,22 @@ export class Orchestrator {
   async run(
     maxTasks = this.config.maxTasks,
   ): Promise<{ completed: number; reason: string }> {
+    const release = new RunLock(this.memory.dir).acquire();
+    try {
+      return await this.runLocked(maxTasks);
+    } finally {
+      release();
+    }
+  }
+  private async runLocked(
+    maxTasks: number,
+  ): Promise<{ completed: number; reason: string }> {
+    const old = this.memory.checkpoint();
+    if (old?.snapshotPlan) this.memory.savePlan(old.snapshotPlan);
     const plan = this.memory.loadPlan();
-    const cp =
+    const cp: Checkpoint =
       this.memory.checkpoint() ??
-      ({
+      CheckpointSchema.parse({
         phase: 'SELECT',
         taskId: null,
         baseBranch: null,
@@ -39,13 +54,18 @@ export class Orchestrator {
         steps: 0,
         taskStarted: 0,
         stopReason: null,
-      } satisfies Checkpoint);
+      });
     cp.stopReason = null;
+    if (this.provider instanceof MockProvider)
+      this.provider.position = cp.mockCursor;
     const startCompleted = cp.completed;
     const transition = (phase: Phase) => {
       cp.phase = phase;
-      this.memory.savePlan(plan);
+      cp.snapshotPlan = plan;
+      if (this.provider instanceof MockProvider)
+        cp.mockCursor = this.provider.position;
       this.memory.saveCheckpoint(cp);
+      this.memory.savePlan(plan);
       this.memory.state(plan, cp);
       this.memory.append('LOG.md', `${cp.taskId ?? '-'} -> ${phase}`);
     };
@@ -84,6 +104,9 @@ export class Orchestrator {
           cp.steps = 0;
           cp.taskStarted = Date.now();
           cp.messages = [];
+          cp.pendingTools = [];
+          cp.toolIndex = 0;
+          cp.awaitingToolFinish = false;
           task.status = 'in_progress';
           task.attempts++;
           transition('PREPARE_CONTEXT');
@@ -108,32 +131,45 @@ export class Orchestrator {
           ];
           transition('EXECUTE');
         } else if (cp.phase === 'EXECUTE') {
-          if (
-            cp.steps >= this.config.maxSteps ||
-            Date.now() - cp.taskStarted > this.config.taskTimeoutMs
-          )
-            throw new Error('Worker task limit exceeded');
-          const response = await this.provider.complete({
-            role: 'worker',
-            model: this.config.models.worker,
-            messages: cp.messages,
-            signal: AbortSignal.timeout(
-              Math.max(
-                1,
-                this.config.taskTimeoutMs - (Date.now() - cp.taskStarted),
+          if (!cp.awaitingToolFinish) {
+            if (
+              cp.steps >= this.config.maxSteps ||
+              Date.now() - cp.taskStarted > this.config.taskTimeoutMs
+            )
+              throw new Error('Worker task limit exceeded');
+            const response = await this.provider.complete({
+              role: 'worker',
+              model: this.config.models.worker,
+              messages: cp.messages,
+              signal: AbortSignal.timeout(
+                Math.max(
+                  1,
+                  this.config.taskTimeoutMs - (Date.now() - cp.taskStarted),
+                ),
               ),
-            ),
-          });
-          cp.steps++;
-          cp.messages.push({ role: 'assistant', content: response.content });
-          for (const call of response.toolCalls) {
+            });
+            cp.steps++;
+            cp.messages.push({ role: 'assistant', content: response.content });
+            cp.pendingTools = response.toolCalls;
+            cp.toolIndex = 0;
+            cp.awaitingToolFinish = true;
+            transition('EXECUTE');
+          }
+          while (cp.toolIndex < cp.pendingTools.length) {
+            const call = cp.pendingTools[cp.toolIndex]!;
             const result = await tools().run(call);
             cp.messages.push({
               role: 'user',
               content: JSON.stringify({ tool: call.name, result }),
             });
+            cp.toolIndex++;
+            transition('EXECUTE');
           }
-          transition(response.toolCalls.length ? 'EXECUTE' : 'VERIFY');
+          const usedTools = cp.pendingTools.length > 0;
+          cp.pendingTools = [];
+          cp.toolIndex = 0;
+          cp.awaitingToolFinish = false;
+          transition(usedTools ? 'EXECUTE' : 'VERIFY');
         } else if (cp.phase === 'VERIFY') {
           const evidence = await verify(
             findTask(),
@@ -148,7 +184,16 @@ export class Orchestrator {
           );
           transition('COMMIT');
         } else if (cp.phase === 'COMMIT') {
-          taskGit().commit(findTask().id, findTask().title);
+          // A commit may exist when a crash occurred before the phase checkpoint.
+          const head = taskGit().run(['rev-parse', 'HEAD']);
+          if (head === cp.baseSha)
+            taskGit().commit(findTask().id, findTask().title);
+          else if (
+            !taskGit()
+              .run(['log', '-1', '--format=%s'])
+              .startsWith(`feat(${findTask().id}):`)
+          )
+            throw new Error('Unexpected commit on task branch');
           this.git.integrate(cp.baseBranch!, cp.branch!);
           findTask().status = 'done';
           transition('REFLECT');
@@ -187,6 +232,9 @@ export class Orchestrator {
         cp.baseBranch = null;
         cp.baseSha = null;
         cp.messages = [];
+        cp.pendingTools = [];
+        cp.toolIndex = 0;
+        cp.awaitingToolFinish = false;
         transition('SELECT');
       }
     }

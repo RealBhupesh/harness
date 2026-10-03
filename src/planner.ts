@@ -15,6 +15,12 @@ export function revisePlan(memory: Memory, proposal: Plan, reason: string) {
   if (cp?.taskId)
     throw new Error('Cannot replan during an active task; resume it first');
   memory.savePlan(next);
-  if (cp) memory.saveCheckpoint({ ...cp, phase: 'SELECT', stopReason: null });
+  if (cp)
+    memory.saveCheckpoint({
+      ...cp,
+      phase: 'SELECT',
+      stopReason: null,
+      snapshotPlan: next,
+    });
   memory.append('DECISIONS.md', `Replanned: ${reason}`);
 }

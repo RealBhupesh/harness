@@ -206,6 +206,8 @@ export class ToolRunner {
       .object({ oldText: z.string().min(1), newText: z.string() })
       .parse(args);
     const content = readFileSync(path, 'utf8');
+    if (!content.includes(oldText) && content.split(newText).length === 2)
+      return `Already patched ${args.path}`;
     if (content.split(oldText).length !== 2)
       throw new Error('Patch must match exactly once');
     writeFileSync(path, content.replace(oldText, newText));

@@ -132,6 +132,11 @@ export const CheckpointSchema = z.object({
   steps: z.number().int(),
   taskStarted: z.number(),
   stopReason: z.string().nullable(),
+  snapshotPlan: PlanSchema.optional(),
+  pendingTools: z.array(ToolCallSchema).default([]),
+  toolIndex: z.number().int().nonnegative().default(0),
+  awaitingToolFinish: z.boolean().default(false),
+  mockCursor: z.number().int().nonnegative().default(0),
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
 export const allTasks = (plan: Plan) => plan.milestones.flatMap((m) => m.tasks);

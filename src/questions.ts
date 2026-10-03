@@ -12,4 +12,6 @@ export function answer(memory: Memory, taskId: string, text: string) {
   memory.append('DECISIONS.md', `Human unblocked ${taskId}: ${text.trim()}`);
   memory.append('QUESTIONS.md', `ANSWERED ${taskId}: ${text.trim()}`);
   memory.savePlan(plan);
+  const cp = memory.checkpoint();
+  if (cp) memory.saveCheckpoint({ ...cp, snapshotPlan: plan });
 }
