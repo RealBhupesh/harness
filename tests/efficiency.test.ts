@@ -543,3 +543,85 @@ test('compacted requests can recover a response recorded before context compacti
     store.close();
   }
 });
+
+test('identical old read observations are omitted while the latest remains', () => {
+  const observation = (path: string, result: string) => ({
+    role: 'user' as const,
+    content: JSON.stringify({ tool: 'read', args: { path }, result }),
+  });
+  const messages = [
+    { role: 'system' as const, content: 'Instructions' },
+    { role: 'user' as const, content: 'Task' },
+    observation('a.txt', 'REPEATED_SOURCE' + 'x'.repeat(500)),
+    { role: 'assistant' as const, content: 'continue' },
+    observation('a.txt', 'REPEATED_SOURCE' + 'x'.repeat(500)),
+    { role: 'assistant' as const, content: 'finish' },
+  ];
+  const prompt = workerPrompt(messages, defaultConfig());
+  expect(
+    JSON.stringify(prompt.messages).match(/REPEATED_SOURCE/g),
+  ).toHaveLength(1);
+  expect(prompt.promptStats!.omittedMessages).toBe(1);
+  expect(JSON.stringify(messages).match(/REPEATED_SOURCE/g)).toHaveLength(2);
+});
+test('changed file observations and different paths are never deduplicated', () => {
+  const observation = (path: string, result: string) => ({
+    role: 'user' as const,
+    content: JSON.stringify({ tool: 'read', args: { path }, result }),
+  });
+  const messages = [
+    { role: 'system' as const, content: 'Instructions' },
+    { role: 'user' as const, content: 'Task' },
+    observation('a.txt', 'OLD'),
+    observation('a.txt', 'NEW'),
+    observation('b.txt', 'NEW'),
+  ];
+  const prompt = workerPrompt(messages, defaultConfig());
+  expect(prompt.promptStats!.omittedMessages).toBe(0);
+  expect(JSON.stringify(prompt.messages)).toContain('OLD');
+  expect(JSON.stringify(prompt.messages).match(/NEW/g)).toHaveLength(2);
+});
+test('context opt-out retains duplicate observations', () => {
+  const message = {
+    role: 'user' as const,
+    content: JSON.stringify({
+      tool: 'read',
+      args: { path: 'a.txt' },
+      result: 'REPEATED_SOURCE',
+    }),
+  };
+  const messages = [
+    { role: 'system' as const, content: 'Instructions' },
+    { role: 'user' as const, content: 'Task' },
+    message,
+    message,
+  ];
+  expect(
+    workerPrompt(messages, ConfigSchema.parse({ context: { enabled: false } }))
+      .messages,
+  ).toEqual(messages);
+});
+
+test('deduplication keeps tiny observations when its omission marker would cost more bytes', () => {
+  const observation = {
+    role: 'user' as const,
+    content: JSON.stringify({
+      tool: 'read',
+      args: { path: 'a.txt' },
+      result: 'x',
+    }),
+  };
+  const messages = [
+    { role: 'system' as const, content: 'Instructions' },
+    { role: 'user' as const, content: 'Task' },
+    observation,
+    { role: 'assistant' as const, content: 'continue' },
+    observation,
+    { role: 'assistant' as const, content: 'finish' },
+  ];
+  const prompt = workerPrompt(messages, defaultConfig());
+  expect(prompt.promptStats!.sentBytes).toBeLessThanOrEqual(
+    prompt.promptStats!.originalBytes,
+  );
+  expect(prompt.promptStats!.omittedMessages).toBe(0);
+});

@@ -1,5 +1,12 @@
 # Decisions
 
+## Subscription efficiency (E2)
+Use the human's existing subscriptions through official CLI authentication, not a separate $20 API budget. Require ChatGPT or Claude OAuth login per call and strip API/third-party billing environment configuration; pause rather than silently switch billing. CLI subscription cost is zero recorded incremental API spend, excluding monthly fees; reported API-equivalent cost is separate. Native completion limits are prompt targets, and valid native usage is charged even for malformed or failed decisions. Unknown provider consumption cannot be reconstructed.
+
+Use bounded automatic batches with one cumulative token/cost/time ledger for planning and workers. Count failed and resumed attempts, including parallel workers. Include planner responses and wall time in durable accounting; terminal parallel journals remain checkpoint authority, so planner usage updates that journal before the root checkpoint. Persist failed-call usage receipts before charging and reconcile uncharged receipts once after a crash. Never convert an invalid decision to a tool proposal. Native watchdogs survive parent death; quota/auth/protocol pauses retain work without retry storms.
+
+Preserve every executable check. Save tokens with bounded context, identical observation removal only when it reduces bytes, targeted patches and related operation batches; do not cache mutable command-test successes. Default economy concurrency is one, with explicit bounded parallelism. Apply low worker effort to Codex; defer Claude effort configuration and retain its native default. Live performance/quality claims require actual measurements on compatible CLI homes. Do not copy OAuth credentials or bypass this cloud environment's read-only home to force inference.
+
 ## Token efficiency (E1)
 Use deterministic, bounded prompt projections rather than an extra paid summarizer call. Preserve task specifications and acceptance criteria, retain the latest failed command and recent exchanges, and allow small paged file reads. Keep full transcripts and executable evidence for durable recovery; excerpts carry byte counts and hashes. Pause before model calls when essential worker context cannot fit. Role output caps and budget reservations reflect the tools actually sent by each role.
 

@@ -10,7 +10,7 @@ import {
   type Config,
 } from '../src/schema.js';
 import { MockProvider, type LLMProvider } from '../src/provider.js';
-import { OpenAIProvider, AnthropicProvider } from '../src/providers.js';
+import { createProvider } from '../src/provider-factory.js';
 import { Memory } from '../src/memory.js';
 import { Orchestrator } from '../src/orchestrator.js';
 import { TraceStore } from '../src/trace.js';
@@ -130,11 +130,7 @@ async function evaluate(
               },
             ],
       );
-    } else
-      provider =
-        config.provider === 'openai'
-          ? new OpenAIProvider(process.env.OPENAI_API_KEY ?? '', config)
-          : new AnthropicProvider(process.env.ANTHROPIC_API_KEY ?? '', config);
+    } else provider = createProvider(config, memory);
     const runStarted = Date.now();
     await new Orchestrator(
       root,

@@ -16,6 +16,12 @@ The command runner is a restricted policy boundary, not an operating-system sand
 
 `relay status` reports progress and estimated usage. `relay trace T1` prints persisted task events. `relay report` regenerates `.relay/report.html`; every completed run also generates it. SQLite and JSONL traces and checkpoints are local runtime files; add the ignore rules shown in `.gitignore` to target repositories. Trace text and Markdown/checkpoints redact recognized keys and injected credential values. Redaction and the secret scan are defense in depth, not exhaustive secret detection.
 
+## Existing Claude and Codex subscriptions
+
+Use the official logged-in CLIs with `relay init --profile economy --provider hybrid`, then supply a real `GOAL.md` and run `relay auto --max-tasks 20`. The hybrid profile uses Claude Haiku for planning, Codex for work and Claude Sonnet for independent verification. Choose `codex-cli` or `claude-cli` instead to use one account. For an existing setup, use `relay profile economy --provider hybrid` before starting work.
+
+Automatic mode continues bounded batches while preserving cumulative usage and checkpoints. It stops on completion, blocked work, quota pauses or task/token/time limits. Native adapters require subscription authentication, remove API-key environment variables and refuse API authentication. Quotas still apply; there is no silent paid API fallback. See [subscription setup and limits](docs/subscriptions.md).
+
 ## Parallel execution
 
 Use `relay run --parallel 2 --max-tasks 5` for independent tasks. Each worker runs in its own worktree; verified branches merge one at a time, with the required suite and acceptance checks run again on the combined tree. Conflicts requeue the task; integration failures produce an explicit revert commit. The attempt cap includes failed attempts. Resume restores the saved width and reconciles worker spending before allocating more budget. Answers and replans require the runner to be stopped.
@@ -24,7 +30,7 @@ Try `node examples/mock-demo.mjs /tmp/relay-parallel-new --parallel` after build
 
 ## Efficient context
 
-Worker requests keep the task and acceptance criteria, compact repeated code and tool output, and omit older history when needed. The latest failed command and recent exchanges remain available. Full tool transcripts stay in checkpoints and traces; workers can reread files with one-based `startLine` and `maxLines` (default 100, maximum 1000). Paged reads respect the output byte cap and UTF-8 boundaries. Verification still executes every configured check and criterion; only the model-facing evidence is excerpted, with hashes and byte counts.
+Worker requests keep the task and acceptance criteria, compact repeated code and tool output, remove identical older successful read/search/Git observations, and omit older history when needed. The latest failed command and recent exchanges remain available. Full tool transcripts stay in checkpoints and traces; workers can reread files with one-based `startLine` and `maxLines` (default 100, maximum 1000). Paged reads respect the output byte cap and UTF-8 boundaries. Verification still executes every configured check and criterion; only the model-facing evidence is excerpted, with hashes and byte counts.
 
 Configure these defaults in `.relay/config.json`:
 

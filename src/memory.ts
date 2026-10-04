@@ -103,6 +103,16 @@ export class Memory {
     } else if (cp) this.saveCheckpoint({ ...cp, snapshotPlan: plan });
     this.savePlan(plan);
   }
+  // Planner holds the run lock and has already rejected active parallel workers.
+  savePlanningCheckpoint(cp: Checkpoint) {
+    const text = this.read('parallel.json');
+    if (text) {
+      const journal = JSON.parse(text) as Record<string, unknown>;
+      journal.checkpoint = CheckpointSchema.parse(cp);
+      this.write('parallel.json', JSON.stringify(journal, null, 2));
+    }
+    this.saveCheckpoint(cp);
+  }
   savePlan(plan: Plan) {
     plan = PlanSchema.parse(plan);
     this.write('plan.json', JSON.stringify(plan, null, 2) + '\n');

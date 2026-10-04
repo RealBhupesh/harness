@@ -28,12 +28,24 @@ export const ResponseSchema = z.object({
     .object({
       tokens: z.number().int().nonnegative(),
       cost: z.number().nonnegative(),
+      billing: z.enum(['api', 'subscription']).optional(),
+      apiEquivalentCost: z.number().nonnegative().optional(),
     })
     .default({ tokens: 0, cost: 0 }),
 });
 export type Response = z.infer<typeof ResponseSchema>;
+export class BudgetExceeded extends Error {
+  receiptId?: string;
+  constructor(
+    message: string,
+    readonly usage?: Response['usage'],
+  ) {
+    super(message);
+  }
+}
 export interface LLMProvider {
   readonly mock?: boolean;
+  billingFor?(role: Role): 'api' | 'subscription';
   // Recover an already-paid durable response without making a new request.
   recover?(request: Request): Response | undefined;
   complete(request: Request): Promise<Response>;

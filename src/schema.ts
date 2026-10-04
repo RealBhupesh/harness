@@ -78,8 +78,53 @@ export const PlanSchema = z
   });
 export type Plan = z.infer<typeof PlanSchema>;
 export type Task = z.infer<typeof TaskSchema>;
+export const ProviderSchema = z.enum([
+  'mock',
+  'openai',
+  'anthropic',
+  'codex-cli',
+  'claude-cli',
+]);
+const CLICommandSchema = (command: string) =>
+  z
+    .object({
+      command: z
+        .string()
+        .min(1)
+        .refine((s) => !s.includes('\0')),
+      args: z.array(z.string()).default([]),
+    })
+    .default({ command, args: [] });
 export const ConfigSchema = z.object({
-  provider: z.enum(['mock', 'openai', 'anthropic']).default('mock'),
+  provider: ProviderSchema.default('mock'),
+  roleProviders: z
+    .object({
+      planner: ProviderSchema.optional(),
+      worker: ProviderSchema.optional(),
+      verifier: ProviderSchema.optional(),
+    })
+    .default({}),
+  cli: z
+    .object({
+      codex: CLICommandSchema('codex'),
+      claude: CLICommandSchema('claude'),
+      timeoutMs: z.number().int().positive().default(120000),
+      maxResponseBytes: z.number().int().min(1024).max(4000000).default(256000),
+      effort: z
+        .object({
+          planner: z.enum(['low', 'medium', 'high']).default('medium'),
+          worker: z.enum(['low', 'medium', 'high']).default('low'),
+          verifier: z.enum(['low', 'medium', 'high']).default('medium'),
+        })
+        .default({ planner: 'medium', worker: 'low', verifier: 'medium' }),
+    })
+    .default({
+      codex: { command: 'codex', args: [] },
+      claude: { command: 'claude', args: [] },
+      timeoutMs: 120000,
+      maxResponseBytes: 256000,
+      effort: { planner: 'medium', worker: 'low', verifier: 'medium' },
+    }),
   models: z
     .object({ planner: z.string(), worker: z.string(), verifier: z.string() })
     .default({ planner: 'mock', worker: 'mock', verifier: 'mock' }),
@@ -196,6 +241,8 @@ export const CheckpointSchema = z.object({
     .default({ tokens: 0, cost: 0 }),
   activeWallMs: z.number().nonnegative().default(0),
   mockCursor: z.number().int().nonnegative().default(0),
+  chargedPlanningCalls: z.array(z.string()).default([]),
+  chargedFailureEvents: z.array(z.string()).default([]),
 });
 export type Checkpoint = z.infer<typeof CheckpointSchema>;
 export const allTasks = (plan: Plan) => plan.milestones.flatMap((m) => m.tasks);

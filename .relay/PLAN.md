@@ -12,4 +12,4 @@
 
 - [x] E1 Token-efficient worker context, bounded evidence, and measured prompt savings
 
-- [ ] E2 Subscription CLI providers, economy profile, autonomous continuation and duplicate context removal
+- [x] E2 Subscription CLI providers, economy profile, autonomous continuation and duplicate context removal

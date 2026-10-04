@@ -1,6 +1,6 @@
 # Subscription efficiency and autonomous continuation
 
-The human wants Relay to run quickly and autonomously using approximately $20 Claude and Codex subscriptions. Treat subscription access as the default assumption while the optional billing clarification is pending. Subscription quotas are account limits, not API credit or unlimited usage; do not silently fall back to paid APIs.
+The human wants Relay to run quickly and autonomously using approximately $20 Claude and Codex subscriptions. The human confirmed use of existing subscriptions, rather than an API spending budget. Subscription quotas are account limits, not API credit or unlimited usage; do not silently fall back to paid APIs.
 
 ## Providers
 
@@ -12,7 +12,7 @@ The wire response contains content plus tool names and JSON argument strings; CL
 
 ## Efficiency and autonomy
 
-An opt-in economy profile uses small bounded prompts, targeted patches, batched independent tool proposals, low worker reasoning effort and a separate verifier. Keep acceptance criteria and full durable transcripts. Deduplicate only identical successful read/search/Git observations in transmitted context, preserving the latest version and original checkpoint history. Do not skip executable verification.
+An opt-in economy profile uses small bounded prompts, targeted patches, batched independent tool proposals, low Codex worker reasoning effort and a separate verifier. Keep acceptance criteria and full durable transcripts. Deduplicate only identical successful read/search/Git observations in transmitted context, preserving the latest version and original checkpoint history. Do not skip executable verification.
 
 Add `relay auto`: plan from a real goal when no plan exists, then continue checkpointed batches until the supplied total attempt limit, completion, blocked work, provider pause, or existing cumulative token/cost/time cap. Never invent a goal or overwrite a plan; do not reset budgets between batches or replan blocked tasks indefinitely. Parallel execution remains explicit and bounded. Diagnostic commands show provider readiness and subscription-versus-API billing without displaying credentials.
 

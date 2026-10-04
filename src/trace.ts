@@ -1,6 +1,6 @@
 import { assertMetadata } from './metadata.js';
 import { createHash } from 'node:crypto';
-import { MockProvider, ResponseSchema } from './provider.js';
+import { MockProvider, ResponseSchema, BudgetExceeded } from './provider.js';
 import Database from 'better-sqlite3';
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { redact } from './redact.js';
 import { allTasks } from './schema.js';
 import type { Memory } from './memory.js';
-import type { LLMProvider, Request, Response } from './provider.js';
+import type { LLMProvider, Request, Response, Role } from './provider.js';
 import { ToolRunner, type CommandResult } from './tools.js';
 import type { ToolCall, Config } from './schema.js';
 export type TraceContext = { runId: string; taskId: string | null };
@@ -59,6 +59,7 @@ export class TraceStore {
       JSON.stringify(event) + '\n',
       { mode: 0o600 },
     );
+    return event.id;
   }
   events(taskId?: string): Event[] {
     const rows = taskId
@@ -80,6 +81,9 @@ export class TracedProvider implements LLMProvider {
   ) {}
   get mock() {
     return this.inner.mock ?? false;
+  }
+  billingFor(role: Role) {
+    return this.inner.billingFor?.(role) ?? 'api';
   }
   private identity(request: Request) {
     const key =
@@ -168,14 +172,18 @@ export class TracedProvider implements LLMProvider {
       );
       return response;
     } catch (error) {
-      this.trace.record(
+      const id = this.trace.record(
         'llm_error',
         {
           role: request.role,
           message: error instanceof Error ? error.message : String(error),
+          ...(error instanceof BudgetExceeded && error.usage
+            ? { usage: error.usage, key, fingerprint }
+            : {}),
         },
         this.context(),
       );
+      if (error instanceof BudgetExceeded && error.usage) error.receiptId = id;
       throw error;
     }
   }
@@ -228,7 +236,7 @@ export function report(memory: Memory, trace: TraceStore) {
     tasks = allTasks(plan),
     done = tasks.filter((t) => t.status === 'done').length,
     cp = memory.checkpoint();
-  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Relay report</title><style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 20px;background:#101827;color:#e5edf7}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #475569}pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}</style><h1>${escape(plan.objective)}</h1><p>${Math.round((done / tasks.length) * 100)}% complete · ${done}/${tasks.length} tasks · ${cp?.usage.tokens ?? 0} tokens · estimated $${(cp?.usage.cost ?? 0).toFixed(4)}</p><p>${escape(cp?.stopReason ?? 'Running')}</p><h2>Tasks and failures</h2><table><tr><th>Task</th><th>Status</th><th>Attempts</th><th>Latest note</th></tr>${tasks.map((t) => `<tr><td>${escape(t.id + ': ' + t.title)}</td><td>${escape(t.status)}</td><td>${t.attempts}</td><td>${escape(t.notes.at(-1) ?? '')}</td></tr>`).join('')}</table><h2>Timeline (last 200 events)</h2>${trace
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Relay report</title><style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 20px;background:#101827;color:#e5edf7}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid #475569}pre{white-space:pre-wrap;overflow-wrap:anywhere}details{margin:12px 0}</style><h1>${escape(plan.objective)}</h1><p>${Math.round((done / tasks.length) * 100)}% complete · ${done}/${tasks.length} tasks · ${cp?.usage.tokens ?? 0} tokens · estimated API spend $${(cp?.usage.cost ?? 0).toFixed(4)}</p><p>${escape(cp?.stopReason ?? 'Running')}</p><h2>Tasks and failures</h2><table><tr><th>Task</th><th>Status</th><th>Attempts</th><th>Latest note</th></tr>${tasks.map((t) => `<tr><td>${escape(t.id + ': ' + t.title)}</td><td>${escape(t.status)}</td><td>${t.attempts}</td><td>${escape(t.notes.at(-1) ?? '')}</td></tr>`).join('')}</table><h2>Timeline (last 200 events)</h2>${trace
     .events()
     .slice(-200)
     .map(

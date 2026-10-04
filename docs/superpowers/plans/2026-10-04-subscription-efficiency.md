@@ -25,23 +25,34 @@
 
 Files: create src/cli-process.ts, src/cli-provider.ts, src/provider-factory.ts, tests/cli-providers.test.ts; modify src/provider.ts, src/schema.ts, src/budget.ts, src/trace.ts, src/cli.ts, evals/run.ts.
 Interfaces: CLIProvider(kind, config) implements LLMProvider; createProvider(config, memory, taskId?) returns the configured provider; role billing is available to budget reservation and reporting.
-- [ ] Write and observe failing subprocess tests for auth, structured decisions, token usage, quotas, cancellation and routing.
-- [ ] Implement bounded watchdog process transport, native protocols and billing-aware routing.
-- [ ] Verify focused tests and full suite; record evidence.
+
+- [x] Write and observe failing subprocess tests for auth, structured decisions, token usage, quotas, cancellation and routing.
+- [x] Implement bounded watchdog process transport, native protocols and billing-aware routing.
+- [x] Verify focused tests and full suite; record evidence.
 
 ## Task 2: Economy profile and automatic continuation
 
 Files: create src/profiles.ts, src/autonomy.ts, tests/autonomy.test.ts; modify src/cli.ts, src/orchestrator.ts and docs.
 Interfaces: economyProfile(selection, existing?) returns validated Config; runAutomatically(memory, config, runBatch, maxAttempts) returns total completed and reason without resetting caps. CLI auto creates a missing plan only from the actual goal.
-- [ ] Write and observe failing tests for complete multi-batch work, pause/no-progress stops, attempt caps, profiles and no-overwrite configuration.
-- [ ] Implement the profile and serial/parallel automatic entry point; surface billing accurately.
-- [ ] Verify focused tests and full suite; record evidence.
+
+- [x] Write and observe failing tests for complete multi-batch work, pause/no-progress stops, attempt caps, profiles and no-overwrite configuration.
+- [x] Implement the profile and serial/parallel automatic entry point; surface billing accurately.
+- [x] Verify focused tests and full suite; record evidence.
 
 ## Task 3: Duplicate context removal and measured delivery
 
 Files: modify src/prompts.ts, tests/efficiency.test.ts, evals documentation, README.md, .relay handoff.
 Interfaces: workerPrompt preserves its existing request metadata while omitting identical old successful observations only when enabled.
-- [ ] Write and observe failing tests for duplicate observations, changed content, different paths and opt-out.
-- [ ] Implement deduplication and efficient tool instructions; keep all executable verification.
-- [ ] Measure enabled/disabled offline context; review the complete patch independently.
-- [ ] Run full setup checks, format and compiled CLI smoke tests; update handoff, commit and push.
+
+- [x] Write and observe failing tests for duplicate observations, changed content, different paths and opt-out.
+- [x] Implement deduplication and efficient tool instructions; keep all executable verification.
+- [x] Measure enabled/disabled offline context; review the complete patch independently.
+- [x] Run full setup checks, format and compiled CLI smoke tests; update handoff, commit and push.
+
+## Completion evidence
+
+Full `bash scripts/setup-cloud.sh` passes frozen installation, lint, types, 102 tests, build and four oracle-backed offline evaluations; false-success guard rejected. Format check passes. Compiled `auto` completes the serial and parallel mock demos. Enabled long-context messages total 34,055 versus 772,518 disabled (95.6% reduction), with both passing the oracle.
+
+One independent final review found three important issues, fixed with regressions: terminal parallel replanning lost usage, failed native decisions discarded valid reported usage, and resumed failures escaped the automatic attempt cap. Tests also cover known quota-error usage, SIGKILL between the failed-call receipt and checkpoint, and resumed parallel failures. Deferred minor: Claude retains native effort defaults; Codex's configured effort applies. No further review round was requested.
+
+Rulings: preserve executable checks instead of caching mutable command successes; include planning in shared durable usage/time accounting; use the parallel journal as checkpoint authority; reject API authentication for subscription adapters. The human confirmed existing subscriptions. Live inference remains unvalidated: Codex app-server initialization is blocked by its read-only CLI home in this cloud environment, and Claude needs a logged-in installation. No credential relocation or paid API fallback was used.

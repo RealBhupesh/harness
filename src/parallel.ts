@@ -228,12 +228,21 @@ export class ParallelCoordinator {
         try {
           for (const event of ledger
             .events(entry.taskId)
-            .filter((e) => e.kind === 'llm')) {
-            const response = ResponseSchema.parse(
-              (JSON.parse(event.payload) as { response: unknown }).response,
-            );
-            observed.tokens += response.usage.tokens;
-            observed.cost += response.usage.cost;
+            .filter((e) => e.kind === 'llm' || e.kind === 'llm_error')) {
+            const data = JSON.parse(event.payload) as {
+              response?: unknown;
+              usage?: unknown;
+            };
+            const usage =
+              event.kind === 'llm'
+                ? ResponseSchema.parse(data.response).usage
+                : data.usage !== undefined
+                  ? ResponseSchema.shape.usage.parse(data.usage)
+                  : undefined;
+            if (usage) {
+              observed.tokens += usage.tokens;
+              observed.cost += usage.cost;
+            }
           }
         } finally {
           ledger.close();

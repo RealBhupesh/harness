@@ -110,6 +110,24 @@ function failedCommand(message: Message): boolean {
     return false;
   }
 }
+function observationKey(message: Message): string | undefined {
+  try {
+    const data = JSON.parse(message.content) as {
+      tool?: string;
+      args?: unknown;
+      result?: unknown;
+    };
+    if (
+      message.role === 'user' &&
+      ['read', 'search', 'git'].includes(data.tool ?? '') &&
+      typeof data.result === 'string'
+    )
+      return digest(JSON.stringify([data.tool, data.args, data.result]));
+  } catch {
+    /* Other exchanges carry intent and remain in context. */
+  }
+  return undefined;
+}
 export function workerPrompt(
   messages: Message[],
   config: Config,
@@ -132,6 +150,17 @@ export function workerPrompt(
   const latestFailure = messages.slice(2).map(failedCommand).lastIndexOf(true);
   const keep = new Set(history.map((_, i) => i));
   const dropped: number[] = [];
+  const seen = new Set<string>();
+  for (let i = history.length - 1; i >= 0; i--) {
+    const key = observationKey(messages[i + 2]!);
+    if (!key) continue;
+    if (seen.has(key) && i < history.length - 2) {
+      keep.delete(i);
+      dropped.push(i);
+    }
+    seen.add(key);
+  }
+  dropped.sort((a, b) => a - b);
   const render = () => [
     ...pinned,
     ...(dropped.length
@@ -145,12 +174,18 @@ export function workerPrompt(
     ...history.filter((_, i) => keep.has(i)),
   ];
   let result = render();
+  if (dropped.length && bytes(result) >= bytes([...pinned, ...history])) {
+    for (const i of dropped) keep.add(i);
+    dropped.length = 0;
+    result = render();
+  }
   for (
     let i = 0;
     bytes(result) > config.context.maxPromptBytes && i < history.length;
     i++
   ) {
-    if (i === latestFailure || i >= history.length - 2) continue;
+    if (!keep.has(i) || i === latestFailure || i >= history.length - 2)
+      continue;
     keep.delete(i);
     dropped.push(i);
     result = render();
