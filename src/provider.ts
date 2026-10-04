@@ -13,6 +13,13 @@ export type Request = {
   maxOutputTokens?: number;
   callId?: string;
   artifactHash?: string;
+  // In-process durable dialogue reference; adapters send only messages.
+  canonicalMessages?: Message[];
+  promptStats?: {
+    originalBytes: number;
+    sentBytes: number;
+    omittedMessages: number;
+  };
 };
 export const ResponseSchema = z.object({
   content: z.string(),
@@ -27,6 +34,8 @@ export const ResponseSchema = z.object({
 export type Response = z.infer<typeof ResponseSchema>;
 export interface LLMProvider {
   readonly mock?: boolean;
+  // Recover an already-paid durable response without making a new request.
+  recover?(request: Request): Response | undefined;
   complete(request: Request): Promise<Response>;
 }
 export class MockProvider implements LLMProvider {

@@ -7,6 +7,8 @@ export type Benchmark = {
   oracle: string;
   refactor?: boolean;
   retry?: string;
+  reference?: string;
+  readRounds?: number;
 };
 const tests = (imports: string, assertions: string) =>
   `import {test} from 'node:test';import assert from 'node:assert/strict';import {${imports}} from './math.mjs';test('acceptance',()=>{${assertions}});`;
@@ -50,3 +52,14 @@ export const benchmarks: Benchmark[] = [
     refactor: true,
   },
 ];
+
+// Synthetic stress case measures repeated context cost, separately from general model capability.
+benchmarks.push({
+  ...benchmarks[0]!,
+  id: 'long-context',
+  goal: 'Read reference.txt for the existing API contract, then add add(a,b) while preserving identity(x).',
+  reference:
+    'Keep identity(x) and add numeric add(a,b).\n' +
+    'Documentation background text.\n'.repeat(1000),
+  readRounds: 8,
+});

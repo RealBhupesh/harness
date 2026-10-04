@@ -81,28 +81,35 @@ export class TracedProvider implements LLMProvider {
   get mock() {
     return this.inner.mock ?? false;
   }
-  async complete(request: Request): Promise<Response> {
-    const context = this.context(),
-      key =
-        request.callId ??
-        createHash('sha256')
-          .update(
-            JSON.stringify({
-              role: request.role,
-              model: request.model,
-              messages: request.messages,
-            }),
-          )
-          .digest('hex');
+  private identity(request: Request) {
+    const key =
+      request.callId ??
+      createHash('sha256')
+        .update(
+          JSON.stringify({
+            role: request.role,
+            model: request.model,
+            messages: request.messages,
+          }),
+        )
+        .digest('hex');
     const fingerprint = createHash('sha256')
       .update(
         JSON.stringify({
           role: request.role,
           model: request.model,
-          input: request.artifactHash ?? request.messages,
+          input:
+            request.artifactHash ??
+            request.canonicalMessages ??
+            request.messages,
         }),
       )
       .digest('hex');
+    return { key, fingerprint };
+  }
+  recover(request: Request): Response | undefined {
+    const context = this.context(),
+      { key, fingerprint } = this.identity(request);
     const cached = this.trace
       .events(context.taskId ?? undefined)
       .find(
@@ -128,6 +135,12 @@ export class TracedProvider implements LLMProvider {
       this.trace.record('llm_recovered', { key }, context);
       return data.response;
     }
+    return undefined;
+  }
+  async complete(request: Request): Promise<Response> {
+    const recovered = this.recover(request);
+    if (recovered) return recovered;
+    const { key, fingerprint } = this.identity(request);
     const started = Date.now();
     try {
       const response = await this.inner.complete(request);
@@ -142,6 +155,12 @@ export class TracedProvider implements LLMProvider {
           role: request.role,
           model: request.model,
           messages: request.messages,
+          maxOutputTokens: request.maxOutputTokens,
+          promptStats: request.promptStats ?? {
+            originalBytes: Buffer.byteLength(JSON.stringify(request.messages)),
+            sentBytes: Buffer.byteLength(JSON.stringify(request.messages)),
+            omittedMessages: 0,
+          },
           response,
           durationMs: Date.now() - started,
         },

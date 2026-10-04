@@ -6,7 +6,7 @@ import { ToolRunner } from '../src/tools.ts';
 import { TracedProvider } from '../src/trace.ts';
 import { MockProvider } from '../src/provider.ts';
 import { Orchestrator } from '../src/orchestrator.ts';
-import { defaultConfig } from '../src/schema.ts';
+import { ConfigSchema, defaultConfig } from '../src/schema.ts';
 const [root, mode] = process.argv.slice(2);
 const marker = join(root, '.relay/killed');
 const kill = () => {
@@ -39,12 +39,21 @@ const complete = TracedProvider.prototype.complete;
 TracedProvider.prototype.complete = async function (req) {
   const result = await complete.call(this, req);
   if (mode === 'verifier' && req.role === 'verifier') kill();
+  if (
+    mode === 'prompt' &&
+    req.role === 'worker' &&
+    req.callId.endsWith('/worker/2')
+  )
+    kill();
   return result;
 };
 const script = JSON.parse(readFileSync(join(root, '.relay/mock.json'), 'utf8'));
 const result = await new Orchestrator(
   root,
-  defaultConfig(),
+  ConfigSchema.parse({
+    ...defaultConfig(),
+    ...JSON.parse(new Memory(root).read('config.json') || '{}'),
+  }),
   new MockProvider(script),
 ).run();
 console.log(JSON.stringify(result));

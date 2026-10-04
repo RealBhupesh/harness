@@ -22,6 +22,28 @@ Use `relay run --parallel 2 --max-tasks 5` for independent tasks. Each worker ru
 
 Try `node examples/mock-demo.mjs /tmp/relay-parallel-new --parallel` after building. It executes two independent tasks through the compiled CLI. Keep failed worktrees for inspection. If verification changes the main checkout, Relay pauses and preserves those changes for inspection instead of claiming success.
 
+## Efficient context
+
+Worker requests keep the task and acceptance criteria, compact repeated code and tool output, and omit older history when needed. The latest failed command and recent exchanges remain available. Full tool transcripts stay in checkpoints and traces; workers can reread files with one-based `startLine` and `maxLines` (default 100, maximum 1000). Paged reads respect the output byte cap and UTF-8 boundaries. Verification still executes every configured check and criterion; only the model-facing evidence is excerpted, with hashes and byte counts.
+
+Configure these defaults in `.relay/config.json`:
+
+```json
+{
+  "context": {
+    "enabled": true,
+    "maxPromptBytes": 48000,
+    "maxEntryBytes": 4000,
+    "maxEvidenceBytes": 1200
+  },
+  "roleOutputTokens": { "planner": 2048, "worker": 2048, "verifier": 1024 }
+}
+```
+
+`maxPromptBytes` bounds serialized worker messages. Relay pauses before a model call if the essential task and retained context cannot fit; increase the limit or split the task. Set `context.enabled` to `false` to use the original context behavior. Role output limits also obey the global `maxOutputTokens` and remaining budget; raise the verifier limit for tasks with many criteria. Recorded worker responses replay against the full durable dialogue even if context settings change after a crash.
+
+LLM trace events record original/sent message bytes and omissions. `pnpm eval` includes a synthetic long-context fixture to measure this reduction. Bytes and `estimatedMessageTokens` (bytes divided by four) are diagnostic proxies; provider-reported token usage and configured-price cost estimates are recorded separately. Tool definitions and provider envelope overhead are excluded from the prompt byte comparison. Live token savings have not been measured.
+
 ## Evaluations and automation
 
 Run `pnpm eval` for isolated offline benchmarks and an oracle-backed scorecard. Optional real-provider runs require explicit configuration; see [evals/README.md](evals/README.md). The [scheduled workflow](docs/continuous-running.md) is disabled by default and opens a progress PR only when explicitly enabled. Interrupted Actions worktrees require manual recovery; local crash resume is tested.

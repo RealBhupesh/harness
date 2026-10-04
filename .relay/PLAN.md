@@ -9,3 +9,5 @@
 - [x] M6 Parallelism
 - [x] M7 Evals and scheduled runner
 - [ ] M8 Real objective plan (requires a human goal)
+
+- [x] E1 Token-efficient worker context, bounded evidence, and measured prompt savings

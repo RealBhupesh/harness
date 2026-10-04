@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { OpenAIProvider, AnthropicProvider } from '../src/providers.js';
 import { BudgetProvider, BudgetExceeded } from '../src/budget.js';
-import { defaultConfig } from '../src/schema.js';
+import { ConfigSchema, defaultConfig } from '../src/schema.js';
 import { MockProvider } from '../src/provider.js';
 afterEach(() => vi.unstubAllGlobals());
 const request = {
@@ -112,4 +112,36 @@ test('provider responds to an already-aborted task signal without retrying', asy
     }),
   ).rejects.toThrow('cancelled');
   expect(calls).toBe(1);
+});
+
+test('budget reservations honor role and request output limits', async () => {
+  let output = 0;
+  const inner = {
+    mock: true,
+    complete: async (req: import('../src/provider.js').Request) => {
+      output = req.maxOutputTokens!;
+      return { content: 'done', toolCalls: [], usage: { tokens: 1, cost: 0 } };
+    },
+  };
+  const config = ConfigSchema.parse({ roleOutputTokens: { verifier: 300 } });
+  const budget = new BudgetProvider(inner, config, { tokens: 0, cost: 0 });
+  await budget.complete({ ...request, role: 'verifier', maxOutputTokens: 100 });
+  expect(output).toBe(100);
+  await budget.complete({ ...request, role: 'verifier' });
+  expect(output).toBe(300);
+});
+
+test('non-worker budget preflight does not reserve tools it never sends', async () => {
+  const inner = {
+    complete: async () => ({
+      content: 'done',
+      toolCalls: [],
+      usage: { tokens: 1, cost: 0 },
+    }),
+  };
+  const config = { ...defaultConfig(), maxTokens: 1400, maxOutputTokens: 100 };
+  const budget = new BudgetProvider(inner, config, { tokens: 0, cost: 0 });
+  await expect(
+    budget.complete({ ...request, role: 'verifier' }),
+  ).resolves.toMatchObject({ content: 'done' });
 });

@@ -1,5 +1,10 @@
 # Decisions
 
+## Token efficiency (E1)
+Use deterministic, bounded prompt projections rather than an extra paid summarizer call. Preserve task specifications and acceptance criteria, retain the latest failed command and recent exchanges, and allow small paged file reads. Keep full transcripts and executable evidence for durable recovery; excerpts carry byte counts and hashes. Pause before model calls when essential worker context cannot fit. Role output caps and budget reservations reflect the tools actually sent by each role.
+
+Pin response replay to the canonical durable dialogue and model, independent of the transmitted summary. Use the existing fingerprint encoding so pre-compaction worker ledgers remain recoverable. Recover and charge an already-paid response before reserving a new call; exhausted budgets still stop subsequent requests. Report message-byte reductions separately from provider token usage and configured-price cost estimates. Synthetic mock savings do not establish live model quality or billing reductions.
+
 ## Initial architecture
 Use the specified TypeScript/pnpm stack and a serial state machine first; alternatives were a heavy framework or immediate parallel execution. Explicit phases and serial verification are easier to inspect and recover. The GOAL.md placeholder is not a real objective; refuse planning until replaced. Cloud cache paths are local setup only.
 

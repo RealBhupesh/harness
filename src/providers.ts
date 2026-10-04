@@ -9,8 +9,13 @@ import {
 export const toolDefinitions = [
   {
     name: 'read',
-    description: 'Read a repository file',
-    properties: { path: { type: 'string' } },
+    description:
+      'Read a repository file; use startLine and maxLines for small pages of large files',
+    properties: {
+      path: { type: 'string' },
+      startLine: { type: 'integer', minimum: 1 },
+      maxLines: { type: 'integer', minimum: 1, maximum: 1000 },
+    },
     required: ['path'],
   },
   {

@@ -13,9 +13,14 @@ import { MockProvider, type LLMProvider } from '../src/provider.js';
 import { OpenAIProvider, AnthropicProvider } from '../src/providers.js';
 import { Memory } from '../src/memory.js';
 import { Orchestrator } from '../src/orchestrator.js';
+import { TraceStore } from '../src/trace.js';
 import { benchmarks, type Benchmark } from './fixtures.js';
 export type Score = {
   failure: string | null;
+  originalPromptBytes: number;
+  sentPromptBytes: number;
+  estimatedMessageTokens: number;
+  elapsedMs: number;
   task: string;
   done: boolean;
   oracle: boolean;
@@ -40,6 +45,8 @@ async function evaluate(
     writeFileSync(join(root, '.gitignore'), '.relay/\n');
     writeFileSync(join(root, 'GOAL.md'), benchmark.goal);
     writeFileSync(join(root, 'math.mjs'), benchmark.initial);
+    if (benchmark.reference)
+      writeFileSync(join(root, 'reference.txt'), benchmark.reference);
     writeFileSync(join(root, 'acceptance.test.mjs'), benchmark.tests);
     git('add', '.');
     git('commit', '-m', 'chore: evaluation fixture');
@@ -101,6 +108,12 @@ async function evaluate(
         guard
           ? [{ content: 'All done; tests passed' }]
           : [
+              ...Array.from({ length: benchmark.readRounds ?? 0 }, () => ({
+                content: '',
+                toolCalls: [
+                  { name: 'read' as const, args: { path: 'reference.txt' } },
+                ],
+              })),
               ...(benchmark.retry ? implement(benchmark.retry) : []),
               ...implement(benchmark.solution),
               {
@@ -122,6 +135,7 @@ async function evaluate(
         config.provider === 'openai'
           ? new OpenAIProvider(process.env.OPENAI_API_KEY ?? '', config)
           : new AnthropicProvider(process.env.ANTHROPIC_API_KEY ?? '', config);
+    const runStarted = Date.now();
     await new Orchestrator(
       root,
       {
@@ -135,6 +149,7 @@ async function evaluate(
       },
       provider,
     ).run(3);
+    const elapsedMs = Date.now() - runStarted;
     // The scoring oracle lives outside the worker checkout, so editing its tests cannot improve the score.
     const oracle = join(base, 'oracle.mjs');
     writeFileSync(
@@ -148,7 +163,25 @@ async function evaluate(
     });
     const task = allTasks(memory.loadPlan())[0]!,
       usage = memory.checkpoint()!.usage;
+    const store = new TraceStore(memory.dir);
+    let originalPromptBytes = 0,
+      sentPromptBytes = 0;
+    try {
+      for (const event of store.events('T1').filter((e) => e.kind === 'llm')) {
+        const data = JSON.parse(event.payload) as {
+          promptStats: { originalBytes: number; sentBytes: number };
+        };
+        originalPromptBytes += data.promptStats.originalBytes;
+        sentPromptBytes += data.promptStats.sentBytes;
+      }
+    } finally {
+      store.close();
+    }
     return {
+      originalPromptBytes,
+      sentPromptBytes,
+      estimatedMessageTokens: Math.ceil(sentPromptBytes / 4),
+      elapsedMs,
       failure: task.notes.join('\n') || null,
       task: guard ? 'false-success-guard' : benchmark.id,
       done: task.status === 'done',
@@ -169,6 +202,10 @@ export async function scorecard(config = ConfigSchema.parse({})) {
   const approved = [...rows, guard].filter((r) => r.done);
   return {
     provider: config.provider,
+    messageByteReduction:
+      1 -
+      rows.reduce((n, r) => n + r.sentPromptBytes, 0) /
+        rows.reduce((n, r) => n + r.originalPromptBytes, 0),
     rows,
     guard,
     successRate: rows.filter((r) => r.success).length / rows.length,
@@ -200,6 +237,9 @@ async function main() {
       success: r.success,
       attempts: r.attempts,
       tokens: r.tokens,
+      promptBytes: r.sentPromptBytes,
+      contextSaved: `${((1 - r.sentPromptBytes / r.originalPromptBytes) * 100).toFixed(1)}%`,
+      ms: r.elapsedMs,
       cost: r.cost,
     })),
   );

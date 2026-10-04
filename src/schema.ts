@@ -85,6 +85,26 @@ export const ConfigSchema = z.object({
     .default({ planner: 'mock', worker: 'mock', verifier: 'mock' }),
   parallel: z.number().int().min(1).max(8).default(1),
   maxOutputTokens: z.number().int().positive().default(2048),
+  roleOutputTokens: z
+    .object({
+      planner: z.number().int().positive().default(2048),
+      worker: z.number().int().positive().default(2048),
+      verifier: z.number().int().positive().default(1024),
+    })
+    .default({ planner: 2048, worker: 2048, verifier: 1024 }),
+  context: z
+    .object({
+      enabled: z.boolean().default(true),
+      maxPromptBytes: z.number().int().min(2048).default(48000),
+      maxEntryBytes: z.number().int().min(256).default(4000),
+      maxEvidenceBytes: z.number().int().min(256).default(1200),
+    })
+    .default({
+      enabled: true,
+      maxPromptBytes: 48000,
+      maxEntryBytes: 4000,
+      maxEvidenceBytes: 1200,
+    }),
   prices: z
     .object({
       planner: z.object({

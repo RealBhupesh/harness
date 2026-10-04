@@ -176,11 +176,23 @@ export class ToolRunner {
           content: z.string().optional(),
           oldText: z.string().optional(),
           newText: z.string().optional(),
+          startLine: z.number().int().positive().optional(),
+          maxLines: z.number().int().positive().max(1000).optional(),
         })
         .parse(call.args),
       path = this.path(args.path);
     if (call.name === 'read') {
       const content = readFileSync(path, 'utf8');
+      if (args.startLine !== undefined || args.maxLines !== undefined) {
+        const start = (args.startLine ?? 1) - 1;
+        const lines = content.split('\n');
+        const selected = lines.slice(start, start + (args.maxLines ?? 100));
+        const data = Buffer.from(selected.join('\n'));
+        let end = Math.min(data.length, this.config.maxOutputBytes);
+        while (end > 0 && end < data.length && (data[end]! & 0xc0) === 0x80)
+          end--;
+        return data.subarray(0, end).toString();
+      }
       return content.slice(0, this.config.maxOutputBytes);
     }
     if (call.name === 'write') {

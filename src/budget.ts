@@ -9,6 +9,12 @@ export class BudgetProvider implements LLMProvider {
     readonly usage: { tokens: number; cost: number },
   ) {}
   async complete(request: Request): Promise<Response> {
+    const recovered = this.inner.recover?.(request);
+    if (recovered) {
+      this.usage.tokens += recovered.usage.tokens;
+      this.usage.cost += recovered.usage.cost;
+      return recovered;
+    }
     if (
       this.usage.tokens >= this.config.maxTokens ||
       this.usage.cost >= this.config.maxCost
@@ -16,12 +22,18 @@ export class BudgetProvider implements LLMProvider {
       throw new BudgetExceeded(
         'Token or cost cap reached; increase the configured cap to continue.',
       );
-    let output = this.config.maxOutputTokens;
+    let output = Math.min(
+      this.config.maxOutputTokens,
+      this.config.roleOutputTokens[request.role],
+      request.maxOutputTokens ?? Infinity,
+    );
     if (!this.inner.mock) {
       // UTF-8 byte count conservatively reserves input; remote billing may differ.
       const input =
         Buffer.byteLength(JSON.stringify(request.messages)) +
-        Buffer.byteLength(JSON.stringify(toolDefinitions)) +
+        (request.role === 'worker'
+          ? Buffer.byteLength(JSON.stringify(toolDefinitions))
+          : 0) +
         1024;
       output = Math.min(
         output,
